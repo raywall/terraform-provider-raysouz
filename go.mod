@@ -1,4 +1,4 @@
-module terraform-provider-raysouz
+module github.com/raywall/terraform-provider-raysouz
 
 go 1.20
 

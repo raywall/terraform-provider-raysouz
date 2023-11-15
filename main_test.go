@@ -2,8 +2,9 @@ package main
 
 import (
 	"os"
-	providers "terraform-provider-raysouz/providers/raysouz"
 	"testing"
+
+	providers "github.com/raywall/terraform-provider-raysouz/providers/raysouz"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"

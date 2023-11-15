@@ -1,7 +1,7 @@
 package raysouz
 
 import (
-	resources "terraform-provider-raysouz/resources/raysouz"
+	resources "github.com/raywall/terraform-provider-raysouz/resources/raysouz"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )

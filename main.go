@@ -1,7 +1,7 @@
 package main
 
 import (
-	providers "terraform-provider-raysouz/providers/raysouz"
+	providers "github.com/raywall/terraform-provider-raysouz/providers/raysouz"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/plugin"
 )
