@@ -1,10 +1,11 @@
 package main
 
 import (
+	providers "terraform-provider-raysouz/providers/raysouz"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
 func TestCustomProviderIntegration(t *testing.T) {
@@ -12,7 +13,7 @@ func TestCustomProviderIntegration(t *testing.T) {
 
 	// Definir o arquivo de configuração Terraform a ser utilizado
 	tfConfig := `
-	provider "customprovider" {}
+	provider "terraform-provider-raysouz" {}
 	
 	resource "custom_resource" "example" {
 		message = "Hello, Test!"
@@ -26,8 +27,8 @@ func TestCustomProviderIntegration(t *testing.T) {
 	}
 
 	// Definir os provedores a serem utilizados no teste
-	testProviders := map[string]terraform.ResourceProvider{
-		"customprovider": Provider(),
+	testProviders := map[string]*schema.Provider{
+		"terraform-provider-raysouz": providers.Provider(),
 	}
 
 	// Executar o teste de integração
