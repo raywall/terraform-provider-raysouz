@@ -1,4 +1,4 @@
-package main
+package raysouz
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 )
 
-func resourceCustom() *schema.Resource {
+func ResourceCustom() *schema.Resource {
 	return &schema.Resource{
 		Create: resourceCustomCreate,
 		Read:   resourceCustomRead,

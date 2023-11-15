@@ -1,5 +1,5 @@
-app/entrypoint.sh
-app/main
+entrypoint.sh
+main
 samples/
 install.sh
 run.sh

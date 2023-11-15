@@ -1,14 +1,13 @@
 package main
 
 import (
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	providers "terraform-provider-raysouz/providers/raysouz"
+
 	"github.com/hashicorp/terraform-plugin-sdk/v2/plugin"
 )
 
 func main() {
 	plugin.Serve(&plugin.ServeOpts{
-		ProviderFunc: func() *schema.Provider {
-			return Provider()
-		},
+		ProviderFunc: providers.Provider,
 	})
 }

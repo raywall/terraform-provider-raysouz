@@ -1,4 +1,4 @@
-module multicloud-tf-provider
+module terraform-provider-raysouz
 
 go 1.20
 
