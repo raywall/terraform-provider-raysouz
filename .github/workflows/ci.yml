@@ -10,34 +10,44 @@ on:
 
 jobs:
   format:
-    name: format & lint
+    name: Format & Lint
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
+    
     - name: Set up Go
       uses: actions/setup-go@v2
       with:
         go-version: 1.20
+    
     - name: Check format
       run: |
-        gofmt -l .
+        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then exit 1; fi
+    
     - name: Check lint
       uses: golangci/golangci-lint-action@v2
       with:
         version: latest
+    
     - uses: dprint/check@v1.3
+    
     # - name: Check docs
     #   run: make docscheck
+  
   test:
     name: Unit & Acceptance tests
     runs-on: ubuntu-latest
+  
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
+  
     - name: Set up Go
       uses: actions/setup-go@v2
       with:
         go-version: 1.20
+  
     - name: Acceptance Tests
-      run: make testacc
+      run: go test -v ./...
       env:
         DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
