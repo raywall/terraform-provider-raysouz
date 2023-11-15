@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io/ioutil"
 	providers "terraform-provider-raysouz/providers/raysouz"
 	"testing"
 
@@ -8,18 +9,17 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
-func TestCustomProviderIntegration(t *testing.T) {
-	// Configurar o ambiente de teste
-
-	// Definir o arquivo de configuração Terraform a ser utilizado
-	tfConfig := `
-	provider "terraform-provider-raysouz" {}
-	
-	resource "custom_resource" "example" {
-		message = "Hello, Test!"
-		cloud   = "aws"
+func readTestConfigFile(t *testing.T, filename string) string {
+	content, err := ioutil.ReadFile(filename)
+	if err != nil {
+		t.Fatalf("Erro ao ler o arquivo de configuração: %v", err)
 	}
-	`
+	return string(content)
+}
+
+func TestCustomProviderIntegration(t *testing.T) {
+	// Definir o arquivo de configuração Terraform a ser utilizado
+	tfConfig := readTestConfigFile(t, `testdata/main.tf`)
 
 	// Definir as verificações de estado após a aplicação
 	checks := []resource.TestCheckFunc{
@@ -44,3 +44,16 @@ func TestCustomProviderIntegration(t *testing.T) {
 		},
 	})
 }
+
+// func TestCustomProviderConfigure(t *testing.T) {
+// 	p := &schema.Provider{}
+// 	resourceData := schema.TestResourceDataRaw(t, schema.NewSet(schema.HashString, nil), nil)
+
+// 	_, err := p.Configure(resourceData)
+
+// 	if err != nil {
+// 		t.Errorf("Erro ao configurar o provedor: %v", err)
+// 	}
+
+// 	// Adicione mais verificações conforme necessário
+// }
