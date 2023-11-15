@@ -1,7 +1,7 @@
 package main
 
 import (
-	"io/ioutil"
+	"os"
 	providers "terraform-provider-raysouz/providers/raysouz"
 	"testing"
 
@@ -10,7 +10,7 @@ import (
 )
 
 func readTestConfigFile(t *testing.T, filename string) string {
-	content, err := ioutil.ReadFile(filename)
+	content, err := os.ReadFile(filename)
 	if err != nil {
 		t.Fatalf("Erro ao ler o arquivo de configuração: %v", err)
 	}
