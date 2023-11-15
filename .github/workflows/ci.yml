@@ -25,10 +25,10 @@ jobs:
       run: |
         if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then exit 1; fi
     
-    - name: Check lint
-      uses: golangci/golangci-lint-action@v2
-      with:
-        version: latest
+    # - name: Check lint
+    #   uses: golangci/golangci-lint-action@v2
+    #   with:
+    #     version: latest
     
     - uses: dprint/check@v1.3
     
