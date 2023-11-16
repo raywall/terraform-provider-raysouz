@@ -1,6 +1,6 @@
 provider "raysouz" { }
 
-resource "custom_resource" "example" {
+resource "raysouz_custom_resource" "example" {
   message = "Hello, Test!"
   cloud   = "aws"  # Substitua por "azure" ou "gcp" conforme necessário
 }

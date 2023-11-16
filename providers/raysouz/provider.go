@@ -9,7 +9,7 @@ import (
 func Provider() *schema.Provider {
 	return &schema.Provider{
 		ResourcesMap: map[string]*schema.Resource{
-			"custom_resource": resources.ResourceCustom(),
+			"raysouz_custom_resource": resources.ResourceCustom(),
 		},
 	}
 }
