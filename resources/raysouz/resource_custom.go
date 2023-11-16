@@ -3,6 +3,8 @@ package raysouz
 import (
 	"fmt"
 
+	"github.com/raywall/terraform-provider-raysouz/services/functions"
+
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 )
@@ -41,9 +43,19 @@ func resourceCustomCreate(d *schema.ResourceData, m interface{}) error {
 	case "aws":
 		// Implementar a criação da role e policy na AWS
 		fmt.Println("Creating AWS resources...")
+
+		err := functions.CreateLambdaFunction("", "")
+		if err != nil {
+			fmt.Println(err)
+		}
 	case "azure":
 		// Implementar a criação da role e policy no Azure
 		fmt.Println("Creating Azure resources...")
+
+		err := functions.CreateAzureFunction("", "", "")
+		if err != nil {
+			fmt.Println(err)
+		}
 	case "gcp":
 		// Implementar a criação da role e policy no GCP
 		fmt.Println("Creating GCP resources...")
