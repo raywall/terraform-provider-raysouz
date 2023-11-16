@@ -1,7 +1,16 @@
+## temp test files
+testdata/.terraform*
 entrypoint.sh
-main
-samples/
 install.sh
 run.sh
 Dockerfile
-teste/
+
+## temp test folders
+bins/
+
+## binary files
+main
+
+## go
+go.mod
+go.sum
