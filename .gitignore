@@ -1,5 +1,6 @@
 ## temp test files
 testdata/.terraform*
+testdata/*.tfstate
 entrypoint.sh
 install.sh
 run.sh

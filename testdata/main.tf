@@ -2,7 +2,7 @@ provider "raysouz" { }
 
 resource "raysouz_custom_resource" "example" {
   message = "Hello, Test!"
-  cloud   = "aws"  # Substitua por "azure" ou "gcp" conforme necessário
+  cloud   = "azure"  # Substitua por "azure" ou "gcp" conforme necessário
 }
 
 # Usando dynamic para personalizar conteúdo com base na nuvem
