@@ -28,11 +28,8 @@ jobs:
             - name: Go vet
               run: go vet ./...
 
-            # - name: Test
-            #   run: go test ./... -cover
-
     #############################################################
-    # 2) RELEASE — chama workflow de versão + build + release
+    # 2) CRIAR RELEASE + BINÁRIOS
     #############################################################
     release:
         name: Release
@@ -47,20 +44,34 @@ jobs:
         steps:
             - name: Checkout
               uses: actions/checkout@v4
-              with:
-                  fetch-depth: 0
-                  fetch-tags: true
 
-            ###########################################################
-            # Chamada do workflow de versão reutilizável
-            ###########################################################
-            - name: Generate Version Tag
+            - name: Get latest existing tag
               id: version
-              uses: ./.github/workflows/create-version-tag.yml
+              run: |
+                  old=$(git tag --sort=-v:refname | head -n 1 | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || echo "v0.0.0")
+                  echo "Last tag: $old"
 
-            ###########################################################
-            # Build multiplataforma do provider
-            ###########################################################
+                  major=$(echo $old | cut -d. -f1 | tr -d v)
+                  minor=$(echo $old | cut -d. -f2)
+                  patch=$(echo $old | cut -d. -f3)
+
+                  while true; do
+                    patch=$((patch + 1))
+                    new="v${major}.${minor}.${patch}"
+                    if ! git rev-parse $new >/dev/null 2>&1; then
+                      echo "new_tag=$new" >> $GITHUB_OUTPUT
+                      echo "Chosen new tag: $new"
+                      break
+                    fi
+                  done
+
+            - name: Create Git Tag
+              run: |
+                  git config user.name "GitHub Actions"
+                  git config user.email "actions@github.com"
+                  git tag ${{ steps.version.outputs.new_tag }}
+                  git push origin ${{ steps.version.outputs.new_tag }}
+
             - name: Build Provider Binaries
               run: |
                   mkdir -p dist
@@ -82,9 +93,6 @@ jobs:
                   cd dist
                   sha256sum *.zip > SHA256SUMS
 
-            ###########################################################
-            # Assinar com GPG
-            ###########################################################
             - name: Import GPG key
               uses: crazy-max/ghaction-import-gpg@v6
               with:
@@ -96,9 +104,6 @@ jobs:
                   cd dist
                   gpg --detach-sign SHA256SUMS
 
-            ###########################################################
-            # Criar release no GitHub
-            ###########################################################
             - name: Create GitHub Release
               uses: softprops/action-gh-release@v1
               with:
@@ -109,7 +114,7 @@ jobs:
                       dist/SHA256SUMS.sig
 
     #############################################################
-    # 3) PUBLICAÇÃO NO GO PROXY
+    # 3) PUBLICAR NO GO PROXY
     #############################################################
     publish_go:
         name: Publish to Go Proxy
@@ -117,12 +122,13 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - name: Trigger Go Proxy refresh
+            - name: Trigger Go Proxy
               run: |
-                  curl -s "https://proxy.golang.org/github.com/${{ github.repository }}/@v/${{ needs.release.outputs.new_tag }}.info"
+                  curl -s \
+                  "https://proxy.golang.org/github.com/${{ github.repository }}/@v/${{ needs.release.outputs.new_tag }}.info"
 
     #############################################################
-    # 4) PUBLICAÇÃO NO TERRAFORM REGISTRY
+    # 4) PUBLICAR NO TERRAFORM REGISTRY
     #############################################################
     publish_terraform:
         name: Publish to Terraform Registry
@@ -132,6 +138,8 @@ jobs:
         steps:
             - name: Notify Terraform Registry
               run: |
-                  curl -X POST https://registry.terraform.io/api/v1/providers/github/${{ github.repository_owner }}/raysouz/versions \
+                  curl -X POST \
+                    https://registry.terraform.io/api/v1/providers/raywall/raysouz/versions \
                     -H "Content-Type: application/json" \
-                    -d '{"version":"'"${{ needs.release.outputs.new_tag }}"'"}' || true
+                    -d '{"version":"'"${{ needs.release.outputs.new_tag }}"'"}' \
+                    || true
