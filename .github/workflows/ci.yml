@@ -1,59 +1,74 @@
-name: ci
+name: Simple CI/CD
 
 on:
-  push:
-    branches:
-      - feature/*
   pull_request:
-    branches:
-      - main
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
 
 jobs:
-  format:
-    name: Format & Lint
+  test-and-release:
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v3
-      with:
-        fetch-depth: 0
-    
-    - name: Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: stable
-    
-    - name: Format
-      run: |
-        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then exit 1; fi
-    
-    # - name: Lint
-    #   uses: golangci/golangci-lint-action@v2
-    #   with:
-    #     version: latest
-    
-    # - uses: dprint/check@v1.3
-    
-    # - name: Docs
-    #   run: make docscheck
-  
-  test:
-    name: Unit & Acceptance tests
-    runs-on: ubuntu-latest
-  
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v3
-      with:
-        fetch-depth: 0
-  
-    - name: Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: stable
-  
-    - name: Acceptance Tests
-      run: go test -v ./...
-      env:
-        DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.25.4"
+          cache: true
+
+      - name: Run tests
+        run: go test ./... -v -race
+
+      - name: Get version and create tag
+        id: version
+        run: |
+          # Get latest tag
+          latest_tag=$(git describe --tags --abbrev=0 --match="v*" 2>/dev/null || echo "v0.0.0")
+          echo "latest_tag=$latest_tag"
+
+          # Calculate new version
+          version="${latest_tag#v}"
+          IFS='.' read -r major minor patch <<< "$version"
+
+          if [ "$major" -eq "0" ]; then
+            new_tag="v1.0.0"
+          else
+            next_patch=$((patch + 1))
+            new_tag="v${major}.${minor}.${next_patch}"
+          fi
+
+          echo "new_tag=$new_tag"
+          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+
+          # Create and push tag
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git tag "$new_tag"
+          git push --tags
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v5
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to Go Proxy
+        run: |
+          echo "Publishing to Go Proxy..."
+          curl -s "https://proxy.golang.org/github.com/${{ github.repository }}/@v/${{ steps.version.outputs.new_tag }}.info"
+          echo ""
+          echo "✅ Published! Available at: https://pkg.go.dev/github.com/${{ github.repository }}@${{ steps.version.outputs.new_tag }}"
