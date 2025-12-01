@@ -1,0 +1,148 @@
+name: Release Terraform Provider
+
+on:
+    push:
+        branches: ["main"]
+    workflow_dispatch:
+
+jobs:
+    #############################################################
+    # 1) VALIDAÇÃO
+    #############################################################
+    validate:
+        name: Validate
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: 1.23
+
+            - name: Go fmt
+              run: go fmt ./...
+
+            - name: Go vet
+              run: go vet ./...
+
+            - name: Test
+              run: go test ./... -cover
+
+    #############################################################
+    # 2) CRIAR RELEASE E GERAR BINÁRIOS
+    #############################################################
+    release:
+        name: Release
+        needs: validate
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+
+        outputs:
+            new_tag: ${{ steps.version.outputs.new_tag }}
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Get latest tag
+              id: last_tag
+              run: |
+                  TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+                  echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+            - name: Bump patch version
+              id: version
+              run: |
+                  old=${{ steps.last_tag.outputs.tag }}
+                  echo "Old tag: $old"
+
+                  # Extrai números
+                  major=$(echo $old | cut -d. -f1 | tr -d v)
+                  minor=$(echo $old | cut -d. -f2)
+                  patch=$(echo $old | cut -d. -f3)
+
+                  new_patch=$((patch + 1))
+                  new_tag="v${major}.${minor}.${new_patch}"
+
+                  echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+                  echo "New tag: $new_tag"
+
+            - name: Create Git Tag
+              run: |
+                  git config user.name "GitHub Actions"
+                  git config user.email "actions@github.com"
+                  git tag ${{ steps.version.outputs.new_tag }}
+                  git push origin ${{ steps.version.outputs.new_tag }}
+
+            - name: Build Provider Binaries
+              run: |
+                  mkdir -p dist
+                  VERSION=${{ steps.version.outputs.new_tag }}
+
+                  for os in linux darwin windows; do
+                    for arch in amd64 arm64; do
+                      GOOS=$os GOARCH=$arch go build -o dist/terraform-provider-raysouz_${VERSION#v}_${os}_${arch}
+                    done
+                  done
+
+            - name: Zip binaries
+              run: |
+                  cd dist
+                  for f in terraform-provider-raysouz_*; do zip "$f.zip" "$f"; done
+
+            - name: Create SHA256SUMS
+              run: |
+                  cd dist
+                  sha256sum *.zip > SHA256SUMS
+
+            - name: Import GPG key
+              uses: crazy-max/ghaction-import-gpg@v6
+              with:
+                  gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+                  passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
+            - name: Sign checksums
+              run: |
+                  cd dist
+                  gpg --detach-sign SHA256SUMS
+
+            - name: Create GitHub Release
+              uses: softprops/action-gh-release@v1
+              with:
+                  tag_name: ${{ steps.version.outputs.new_tag }}
+                  files: |
+                      dist/*.zip
+                      dist/SHA256SUMS
+                      dist/SHA256SUMS.sig
+
+    #############################################################
+    # 3) PUBLICAÇÃO NO GO PROXY
+    #############################################################
+    publish_go:
+        name: Publish to Go Proxy
+        needs: release
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Trigger Go Proxy refresh
+              run: |
+                  curl -s "https://proxy.golang.org/github.com/${{ github.repository }}/@v/${{ needs.release.outputs.new_tag }}.info"
+
+    #############################################################
+    # 4) PUBLICAÇÃO NO TERRAFORM REGISTRY
+    #############################################################
+    publish_terraform:
+        name: Publish to Terraform Registry
+        needs: [release, publish_go]
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Notify Terraform Registry
+              run: |
+                  curl -X POST https://registry.terraform.io/api/v1/providers/github/${{ github.repository_owner }}/raysouz/versions \
+                    -H "Content-Type: application/json" \
+                    -d '{"version":"'"${{ needs.release.outputs.new_tag }}"'"}' || true
