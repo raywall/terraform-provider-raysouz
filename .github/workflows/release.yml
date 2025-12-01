@@ -54,22 +54,26 @@ jobs:
                   TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
                   echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-            - name: Bump patch version
+            - name: Bump version safely
               id: version
               run: |
-                  old=${{ steps.last_tag.outputs.tag }}
-                  echo "Old tag: $old"
+                  old=$(git tag --sort=-v:refname | head -n 1 | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || echo "v0.0.0")
+                  echo "Last existing tag: $old"
 
-                  # Extrai números
                   major=$(echo $old | cut -d. -f1 | tr -d v)
                   minor=$(echo $old | cut -d. -f2)
                   patch=$(echo $old | cut -d. -f3)
 
-                  new_patch=$((patch + 1))
-                  new_tag="v${major}.${minor}.${new_patch}"
-
-                  echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
-                  echo "New tag: $new_tag"
+                  # tenta a próxima versão
+                  while true; do
+                      patch=$((patch + 1))
+                      new="v${major}.${minor}.${patch}"
+                      if ! git rev-parse "$new" >/dev/null 2>&1; then
+                          echo "new_tag=$new" >> $GITHUB_OUTPUT
+                          echo "Chosen new tag: $new"
+                          break
+                      fi
+                  done
 
             - name: Create Git Tag
               run: |
