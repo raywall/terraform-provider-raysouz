@@ -1,0 +1,86 @@
+name: Create Version Tag
+
+on:
+    workflow_call:
+        inputs:
+            git_user_name:
+                required: false
+                type: string
+                default: "GitHub Actions"
+            git_user_email:
+                required: false
+                type: string
+                default: "actions@github.com"
+
+        outputs:
+            new_tag:
+                description: "New version tag created"
+                value: ${{ jobs.version.outputs.new_tag }}
+            previous_tag:
+                description: "Previous version tag"
+                value: ${{ jobs.version.outputs.previous_tag }}
+
+jobs:
+    version:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+
+        outputs:
+            new_tag: ${{ steps.create-tag.outputs.new_tag }}
+            previous_tag: ${{ steps.get-previous-tag.outputs.previous_tag }}
+
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+                  fetch-tags: true
+
+            - name: Set Git Identity
+              run: |
+                  git config --global user.name "${{ inputs.git_user_name }}"
+                  git config --global user.email "${{ inputs.git_user_email }}"
+
+            ###############################################################
+            # 1. Obter última tag real existente
+            ###############################################################
+            - name: Get Previous Tag
+              id: get-previous-tag
+              run: |
+                  previous_tag=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
+
+                  if [ -z "$previous_tag" ]; then
+                    previous_tag="v0.0.0"
+                  fi
+
+                  echo "previous_tag=$previous_tag" >> $GITHUB_OUTPUT
+                  echo "Previous tag: $previous_tag"
+
+            ###############################################################
+            # 2. Calcular e criar próxima versão sem colisão
+            ###############################################################
+            - name: Increment Version and Create Tag Safely
+              id: create-tag
+              run: |
+                  previous="${{ steps.get-previous-tag.outputs.previous_tag }}"
+                  version="${previous#v}"
+
+                  IFS='.' read -r major minor patch <<< "$version"
+
+                  # loop até achar um patch livre
+                  while true; do
+                    patch=$((patch + 1))
+                    candidate="v${major}.${minor}.${patch}"
+
+                    if ! git rev-parse "$candidate" >/dev/null 2>&1; then
+                      new_tag="$candidate"
+                      break
+                    fi
+                  done
+
+                  echo "New tag: $new_tag"
+                  echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+
+                  git tag "$new_tag"
+                  git push origin "$new_tag"
