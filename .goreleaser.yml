@@ -34,18 +34,10 @@ archives:
 checksum:
   name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
   algorithm: sha256
+  # Desabilite signing se não usar GPG
+  disable_sign: true
 
-# Remova a seção de signing se não usar GPG
-# signs:
-#   - artifacts: checksum
-#     args:
-#       - --batch
-#       - --local-user
-#       - "{{ .Env.GPG_FINGERPRINT }}"
-#       - --output
-#       - "${signature}"
-#       - --detach-sign
-#       - "${artifact}"
+nfpms: [] # Remove .deb/.rpm se não for usar
 
 release:
   prerelease: auto
@@ -57,3 +49,19 @@ changelog:
     - '^docs:'
     - '^test:'
     - '^chore:'
+
+# IMPORTANTE: Configuração para Terraform Registry
+announce:
+  # Adicione links para documentação
+  twitter:
+    enabled: false
+  mastodon:
+    enabled: false
+  linkedin:
+    enabled: false
+  reddit:
+    enabled: false
+  hackernews:
+    enabled: false
+  bluesky:
+    enabled: false
