@@ -76,35 +76,33 @@ jobs:
                   git tag ${{ steps.version.outputs.new_tag }}
                   git push origin ${{ steps.version.outputs.new_tag }}
 
-            - name: Build Provider Binaries
-              run: |
-                  mkdir -p dist
-                  VERSION=${{ steps.version.outputs.new_tag }}
+            # - name: Build Provider Binaries
+            #   run: |
+            #       mkdir -p dist
+            #       VERSION=${{ steps.version.outputs.new_tag }}
 
-                  for os in linux darwin windows; do
-                    for arch in amd64 arm64; do
-                      GOOS=$os GOARCH=$arch go build -o dist/terraform-provider-raysouz_${VERSION#v}_${os}_${arch}
-                    done
-                  done
+            #       for os in linux darwin windows; do
+            #         for arch in amd64 arm64; do
+            #           GOOS=$os GOARCH=$arch go build -o dist/terraform-provider-raysouz_${VERSION#v}_${os}_${arch}
+            #         done
+            #       done
 
-            - name: Zip binaries
-              run: |
-                  cd dist
-                  for f in terraform-provider-raysouz_*; do zip "$f.zip" "$f"; done
+            # - name: Zip binaries
+            #   run: |
+            #       cd dist
+            #       for f in terraform-provider-raysouz_*; do zip "$f.zip" "$f"; done
 
-            - name: Create SHA256SUMS
-              run: |
-                  cd dist
-                  sha256sum *.zip > SHA256SUMS
+            # - name: Create SHA256SUMS
+            #   run: |
+            #       cd dist
+            #       sha256sum *.zip > SHA256SUMS
 
             - name: Import GPG key
+              id: import_gpg
               uses: crazy-max/ghaction-import-gpg@v6
               with:
                   gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
                   passphrase: ${{ secrets.PASSPHRASE }}
-                  git_user_signingkey: true
-                  git_commit_gpgsign: true
-                  git_tag_gpgsign: true
 
             - name: Sign checksums
               run: |
@@ -114,13 +112,13 @@ jobs:
                       --detach-sign SHA256SUMS
 
             - name: Create GitHub Release
-              uses: softprops/action-gh-release@v1
+              uses: goreleaser/goreleaser-action@v5
               with:
-                  tag_name: ${{ steps.version.outputs.new_tag }}
-                  files: |
-                      dist/*.zip
-                      dist/SHA256SUMS
-                      dist/SHA256SUMS.sig
+                  version: latest
+                  args: release --clean
+                  env:
+                      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                      GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
 
     #############################################################
     # 3) PUBLICAR NO GO PROXY
