@@ -49,6 +49,4 @@ announce:
 
 terraform:
   enabled: true
-  metadata:
-    protocol_versions:
-    - "5.0"
+  protocol_version: "5.0"

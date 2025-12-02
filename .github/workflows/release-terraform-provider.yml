@@ -105,33 +105,33 @@ jobs:
                   GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
                   PASSPHRASE: ${{ secrets.PASSPHRASE }}
 
-    #############################################################
-    # 3) PUBLICAR NO GO PROXY
-    #############################################################
-    publish_go:
-        name: Publish to Go Proxy
-        needs: release
-        runs-on: ubuntu-latest
+    # #############################################################
+    # # 3) PUBLICAR NO GO PROXY
+    # #############################################################
+    # publish_go:
+    #     name: Publish to Go Proxy
+    #     needs: release
+    #     runs-on: ubuntu-latest
 
-        steps:
-            - name: Trigger Go Proxy
-              run: |
-                  curl -s \
-                  "https://proxy.golang.org/github.com/${{ github.repository }}/@v/${{ needs.release.outputs.new_tag }}.info"
+    #     steps:
+    #         - name: Trigger Go Proxy
+    #           run: |
+    #               curl -s \
+    #               "https://proxy.golang.org/github.com/${{ github.repository }}/@v/${{ needs.release.outputs.new_tag }}.info"
 
-    #############################################################
-    # 4) PUBLICAR NO TERRAFORM REGISTRY
-    #############################################################
-    publish_terraform:
-        name: Publish to Terraform Registry
-        needs: [release, publish_go]
-        runs-on: ubuntu-latest
+    # #############################################################
+    # # 4) PUBLICAR NO TERRAFORM REGISTRY
+    # #############################################################
+    # publish_terraform:
+    #     name: Publish to Terraform Registry
+    #     needs: [release, publish_go]
+    #     runs-on: ubuntu-latest
 
-        steps:
-            - name: Notify Terraform Registry
-              run: |
-                  curl -X POST \
-                    https://registry.terraform.io/api/v1/providers/raywall/raysouz/versions \
-                    -H "Content-Type: application/json" \
-                    -d '{"version":"'"${{ needs.release.outputs.new_tag }}"'"}' \
-                    || true
+    #     steps:
+    #         - name: Notify Terraform Registry
+    #           run: |
+    #               curl -X POST \
+    #                 https://registry.terraform.io/api/v1/providers/raywall/raysouz/versions \
+    #                 -H "Content-Type: application/json" \
+    #                 -d '{"version":"'"${{ needs.release.outputs.new_tag }}"'"}' \
+    #                 || true
