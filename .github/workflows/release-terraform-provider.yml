@@ -85,10 +85,16 @@ jobs:
                   git checkout ${{ steps.version.outputs.new_tag }}
 
             - name: Import GPG key
+              id: import_gpg
               uses: crazy-max/ghaction-import-gpg@v6
               with:
                   gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
                   passphrase: ${{ secrets.PASSPHRASE }}
+
+            - name: Setup GPG fingerprint
+              id: gpg_fingerprint
+              run: |
+                  echo "fingerprint=$(gpg --list-secret-keys --keyid-format LONG | grep -oP '^\s*\K[0-9A-F]{40}')" >> $GITHUB_OUTPUT
 
             - name: Run GoReleaser
               uses: goreleaser/goreleaser-action@v6
@@ -97,7 +103,7 @@ jobs:
                   args: release --clean
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+                  GPG_FINGERPRINT: ${{ steps.gpg_fingerprint.outputs.fingerprint }}
                   GPG_PASSPHRASE: ${{ secrets.PASSPHRASE }}
 
             - name: Upload terraform-registry-manifest.json

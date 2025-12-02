@@ -40,6 +40,8 @@ checksum:
 
 signs:
 - artifacts: checksum
+  signature: "${artifact}.sig"
+  cmd: gpg
   args:
   - "--batch"
   - "--local-user"
@@ -48,6 +50,11 @@ signs:
   - "${signature}"
   - "--detach-sign"
   - "${artifact}"
+  # Condição para executar apenas se o fingerprint estiver definido
+  ids:
+  - "gpg"
+  env:
+  - GPG_FINGERPRINT
 
 release:
   extra_files:
