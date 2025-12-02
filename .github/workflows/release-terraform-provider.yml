@@ -95,27 +95,32 @@ jobs:
                   gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
                   passphrase: ${{ secrets.PASSPHRASE }}
 
-            - name: Run GoReleaser
-              uses: goreleaser/goreleaser-action@v5
+            - name: Run GoReleaser (sem assinatura)
+              uses: goreleaser/goreleaser-action@v6
               with:
-                  version: 2.13.0
+                  version: latest
                   args: release --clean --skip=validate
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
-                  PASSPHRASE: ${{ secrets.PASSPHRASE }}
 
-            - name: Generate and upload terraform-registry-manifest.json
+            - name: Download, sign and upload registry assets
               run: |
+                  gh release download ${{ steps.version.outputs.new_tag }} --pattern "SHA256SUMS"
+                  echo "${{ secrets.PASSPHRASE }}" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --detach-sign --output SHA256SUMS.sig SHA256SUMS
+
                   cat > terraform-registry-manifest.json << EOF
                   {
-                  "version": 1,
-                  "metadata": {
+                    "version": 1,
+                    "metadata": {
                       "protocol_versions": ["5.0"]
-                  }
+                    }
                   }
                   EOF
+
+                  gh release upload ${{ steps.version.outputs.new_tag }} SHA256SUMS.sig --clobber
                   gh release upload ${{ steps.version.outputs.new_tag }} terraform-registry-manifest.json --clobber
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     # #############################################################
     # # 3) PUBLICAR NO GO PROXY
