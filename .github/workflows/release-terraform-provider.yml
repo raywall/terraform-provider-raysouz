@@ -44,6 +44,13 @@ jobs:
         steps:
             - name: Checkout
               uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Setup Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: 1.25.4
 
             - name: Get latest existing tag
               id: version
@@ -76,26 +83,10 @@ jobs:
                   git tag ${{ steps.version.outputs.new_tag }}
                   git push origin ${{ steps.version.outputs.new_tag }}
 
-            # - name: Build Provider Binaries
-            #   run: |
-            #       mkdir -p dist
-            #       VERSION=${{ steps.version.outputs.new_tag }}
-
-            #       for os in linux darwin windows; do
-            #         for arch in amd64 arm64; do
-            #           GOOS=$os GOARCH=$arch go build -o dist/terraform-provider-raysouz_${VERSION#v}_${os}_${arch}
-            #         done
-            #       done
-
-            # - name: Zip binaries
-            #   run: |
-            #       cd dist
-            #       for f in terraform-provider-raysouz_*; do zip "$f.zip" "$f"; done
-
-            # - name: Create SHA256SUMS
-            #   run: |
-            #       cd dist
-            #       sha256sum *.zip > SHA256SUMS
+            - name: Checkout the new tag again (deep)
+              run: |
+                  git fetch --depth=1 origin ${{ steps.version.outputs.new_tag }}
+                  git checkout ${{ steps.version.outputs.new_tag }}
 
             - name: Import GPG key
               id: import_gpg
@@ -104,21 +95,15 @@ jobs:
                   gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
                   passphrase: ${{ secrets.PASSPHRASE }}
 
-            # - name: Sign checksums
-            #   run: |
-            #       cd dist
-            #       gpg --batch --yes --pinentry-mode loopback \
-            #           --passphrase "${{ secrets.PASSPHRASE }}" \
-            #           --detach-sign SHA256SUMS
-
-            - name: Create GitHub Release
-              uses: goreleaser/goreleaser-action@v5
+            - name: Run GoReleaser
+              uses: goreleaser/goreleaser-action@v6 # use v6, está mais estável
               with:
                   version: latest
-                  args: release --clean
+                  args: release --clean --skip-validate # <-- skip-validate evita validação de commit
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+                  PASSPHRASE: ${{ secrets.PASSPHRASE }}
 
     #############################################################
     # 3) PUBLICAR NO GO PROXY
