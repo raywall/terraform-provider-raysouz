@@ -1,5 +1,3 @@
-version: 2
-
 project_name: terraform-provider-raysouz
 
 before:
@@ -7,7 +5,7 @@ before:
   - go mod tidy
 
 builds:
-- id: provider
+- id: terraform-provider
   main: .
   binary: terraform-provider-raysouz
   goos:
@@ -19,38 +17,38 @@ builds:
   - arm64
 
 archives:
-- format: zip
+- id: release
   builds:
-  - provider
-  name_template: >-
-    {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+  - terraform-provider
+  format: zip
+  name_template: "{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
-  name_template: checksums.txt
+  name_template: "SHA256SUMS"
 
 signs:
-- artifacts: all
+- artifacts: checksum
   cmd: gpg
-  signature: "${artifact}.sig"
   args:
-  - --output
-  - "${signature}"
-  - --detach-sign
-  - "${artifact}"
-  env:
-  - "GPG_TTY=/dev/tty"
+  - "--batch"
+  - "--yes"
+  - "--pinentry-mode"
+  - "loopback"
+  - "--passphrase"
+  - "{{ .Env.PASSPHRASE }}"
+  - "--detach-sign"
+  - "{{ .ArtifactPath }}"
 
 release:
-  draft: false
-  prerelease: auto
-
-changelog:
-  use: git
-  sort: asc
-  filters:
-    exclude:
-    - '^docs:'
-    - '^test:'
+  github:
+    owner: raywall
+    name: terraform-provider-raysouz
 
 announce:
   skip: true
+
+terraform:
+  enabled: true
+  metadata:
+    protocol_versions:
+    - "5.0"
