@@ -98,7 +98,7 @@ jobs:
             - name: Run GoReleaser
               uses: goreleaser/goreleaser-action@v5
               with:
-                  version: "~> 2.0"
+                  version: 2.13.0
                   args: release --clean --skip=validate
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
