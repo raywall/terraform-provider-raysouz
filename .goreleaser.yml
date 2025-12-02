@@ -1,62 +1,56 @@
-version: 2
-
-project_name: terraform-provider-raysouz
-
 before:
   hooks:
   - go mod tidy
 
 builds:
 - env:
-  # goreleaser does not work with CGO, it could also complicate
-  # usage by users in CI/CD systems like Terraform Cloud where
-  # they are unable to install libraries.
   - CGO_ENABLED=0
-  mod: mod
-  main: .
+
+  mod_timestamp: '{{ .CommitTimestamp }}'
+  flags:
+  - -trimpath
+
   ldflags:
-  - -X 'main/version={{.Version}}'
-  - -X 'main/commit={{.Commit}}'
-  - -X 'main/date={{.CommitDate}}'
+  - '-s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}}'
+
   goos:
   - linux
   - darwin
   - windows
+
   goarch:
   - amd64
   - arm64
-  binary: terraform-provider-raysouz
+
+  binary: '{{ .ProjectName }}_v{{ .Version }}'
 
 archives:
 - format: zip
-  name_template: "{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}"
+  name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
 
 checksum:
-  name_template: "{{ .ProjectName }}_{{ .Tag }}_SHA256SUMS"
+  extra_files:
+  - glob: 'terraform-registry-manifest.json'
+    name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
+
+  name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
   algorithm: sha256
 
 signs:
 - artifacts: checksum
-  cmd: gpg
   args:
-  - --batch
-  - --yes
-  - --pinentry-mode
-  - loopback
-  - --passphrase
-  - "{{ .Env.GPG_PASSPHRASE }}"
-  - --detach-sign
-  - --armor
+  - "--batch"
+  - "--local-user"
+  - "{{ .Env.GPG_FINGERPRINT }}"
+  - "--output"
+  - "${signature}"
+  - "--detach-sign"
   - "${artifact}"
-  output: "${artifact}.sig"
 
 release:
-  github:
-    owner: raywall
-    name: terraform-provider-raysouz
   extra_files:
-  - glob: terraform-registry-manifest.json
-    # Isso copia o manifesto da raiz para a release sem src/dst (sintaxe v2.x)
+  - glob: 'terraform-registry-manifest.json'
+    name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
 
-announce:
+changelog:
   skip: true
