@@ -2,31 +2,45 @@ version: 2
 
 project_name: terraform-provider-raysouz
 
-before:
-  hooks:
-  - go mod tidy
-
 builds:
-- id: terraform-provider
-  main: .
-  binary: terraform-provider-raysouz
+- env:
+  - CGO_ENABLED=0
   goos: [ linux, darwin, windows ]
   goarch: [ amd64, arm64 ]
+  main: .
+  binary: terraform-provider-raysouz
+  ldflags:
+  - -s -w
 
 archives:
-- id: release
-  builds: [ terraform-provider ]
-  format: zip
-  name_template: "{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}"
+- format: zip
+  name_template: "terraform-provider-{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}" # Nome exato para ZIPs
 
 checksum:
-  name_template: "SHA256SUMS" # ← nome exato
+  name_template: "terraform-provider-{{ .ProjectName }}_{{ .Tag }}_SHA256SUMS" # Nome exato para registry
   algorithm: sha256
+
+signs:
+- artifacts: checksum
+  signature: "terraform-provider-{{ .ProjectName }}_{{ .Tag }}_SHA256SUMS.sig" # Nome exato para .sig
+  cmd: gpg
+  args:
+  - --detach-sign # Binary signature (não --armor!)
+  - --batch
+  - --yes
+  - --pinentry-mode
+  - loopback
+  - --passphrase
+  - "{{ .Env.GPG_PASSPHRASE }}"
+  - "${artifact}"
 
 release:
   github:
     owner: raywall
     name: terraform-provider-raysouz
+  extra_files:
+  - src: terraform-registry-manifest.json # Copia o manifesto da raiz
+    dst: "terraform-provider-{{ .ProjectName }}_{{ .Tag }}_manifest.json" # Nome exato para registry
 
 announce:
   skip: true

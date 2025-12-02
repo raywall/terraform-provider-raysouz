@@ -5,6 +5,10 @@ on:
         branches: ["main"]
     workflow_dispatch:
 
+permissions:
+    contents: write
+    packages: write
+
 jobs:
     #############################################################
     # 1) VALIDAÇÃO
@@ -35,8 +39,6 @@ jobs:
         name: Release
         needs: validate
         runs-on: ubuntu-latest
-        permissions:
-            contents: write
 
         outputs:
             new_tag: ${{ steps.version.outputs.new_tag }}
@@ -52,103 +54,48 @@ jobs:
               with:
                   go-version: 1.25.4
 
-            - name: Get latest existing tag
+            - name: Determine next version
               id: version
               run: |
                   git fetch --tags
-
-                  old=$(git tag --sort=-v:refname | head -n 1 | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || echo "v0.0.0")
-                  echo "Last tag: $old"
-
-                  major=$(echo $old | cut -d. -f1 | tr -d v)
-                  minor=$(echo $old | cut -d. -f2)
-                  patch=$(echo $old | cut -d. -f3)
-
-                  # incrementa até encontrar uma versão livre NO REMOTO
-                  while true; do
-                  patch=$((patch + 1))
-                  new="v${major}.${minor}.${patch}"
-
-                  if ! git ls-remote --tags origin | grep -q "refs/tags/$new$"; then
+                  latest=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || echo "v0.0.0")
+                  major=$(echo $latest | cut -d. -f1 | tr -d v)
+                  minor=$(echo $latest | cut -d. -f2)
+                  patch=$(echo $latest | cut -d. -f3)
+                  while :; do
+                      patch=$((patch + 1))
+                      new="v${major}.${minor}.${patch}"
+                      if ! git ls-remote --tags origin | grep -q "refs/tags/$new"; then
                       echo "new_tag=$new" >> $GITHUB_OUTPUT
-                      echo "Chosen new tag: $new"
+                      echo "Next tag: $new"
                       break
-                  fi
+                      fi
                   done
 
-            - name: Create Git Tag
+            - name: Create and push tag
               run: |
-                  git config user.name "GitHub Actions"
+                  git config user.name "github-actions"
                   git config user.email "actions@github.com"
                   git tag ${{ steps.version.outputs.new_tag }}
                   git push origin ${{ steps.version.outputs.new_tag }}
 
-            - name: Checkout the new tag again (deep)
+            - name: Checkout tag
               run: |
                   git fetch origin ${{ steps.version.outputs.new_tag }} --tags
                   git checkout ${{ steps.version.outputs.new_tag }}
 
             - name: Import GPG key
-              id: import_gpg
               uses: crazy-max/ghaction-import-gpg@v6
               with:
                   gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
                   passphrase: ${{ secrets.PASSPHRASE }}
 
-            - name: Run GoReleaser (sem assinatura)
+            - name: Run GoReleaser
               uses: goreleaser/goreleaser-action@v6
               with:
                   version: latest
-                  args: release --clean --skip=validate
+                  args: release --clean
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-            - name: Download, sign and upload registry assets
-              run: |
-                  gh release download ${{ steps.version.outputs.new_tag }} --pattern "SHA256SUMS"
-                  echo "${{ secrets.PASSPHRASE }}" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --detach-sign --output SHA256SUMS.sig SHA256SUMS
-
-                  cat > terraform-registry-manifest.json << EOF
-                  {
-                    "version": 1,
-                    "metadata": {
-                      "protocol_versions": ["5.0"]
-                    }
-                  }
-                  EOF
-
-                  gh release upload ${{ steps.version.outputs.new_tag }} SHA256SUMS.sig --clobber
-                  gh release upload ${{ steps.version.outputs.new_tag }} terraform-registry-manifest.json --clobber
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    # #############################################################
-    # # 3) PUBLICAR NO GO PROXY
-    # #############################################################
-    # publish_go:
-    #     name: Publish to Go Proxy
-    #     needs: release
-    #     runs-on: ubuntu-latest
-
-    #     steps:
-    #         - name: Trigger Go Proxy
-    #           run: |
-    #               curl -s \
-    #               "https://proxy.golang.org/github.com/${{ github.repository }}/@v/${{ needs.release.outputs.new_tag }}.info"
-
-    # #############################################################
-    # # 4) PUBLICAR NO TERRAFORM REGISTRY
-    # #############################################################
-    # publish_terraform:
-    #     name: Publish to Terraform Registry
-    #     needs: [release, publish_go]
-    #     runs-on: ubuntu-latest
-
-    #     steps:
-    #         - name: Notify Terraform Registry
-    #           run: |
-    #               curl -X POST \
-    #                 https://registry.terraform.io/api/v1/providers/raywall/raysouz/versions \
-    #                 -H "Content-Type: application/json" \
-    #                 -d '{"version":"'"${{ needs.release.outputs.new_tag }}"'"}' \
-    #                 || true
+                  GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+                  GPG_PASSPHRASE: ${{ secrets.PASSPHRASE }}
