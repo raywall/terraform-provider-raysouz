@@ -1,67 +1,48 @@
+project_name: terraform-provider-raysouz
+
 before:
   hooks:
   - go mod tidy
 
 builds:
-- env:
-  - CGO_ENABLED=0
+- id: terraform-provider
+  main: .
+  binary: terraform-provider-raysouz
   goos:
   - linux
-  - windows
   - darwin
+  - windows
   goarch:
   - amd64
   - arm64
-  ignore:
-  - goos: darwin
-    goarch: arm64
-  main: ./main.go
-  binary: terraform-provider-raysouz
-  ldflags:
-  - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
-  tags:
-  - netgo
 
 archives:
-- format: zip
-  name_template: >-
-    {{ .ProjectName }}_ {{- title .Os }}_ {{- if eq .Arch "amd64" }}x86_64 {{- else if eq .Arch "386" }}i386 {{- else }}{{ .Arch }}{{ end }} {{- if .Arm }}v{{ .Arm }}{{ end }}
-  files:
-  - README*
-  - LICENSE*
-  - CHANGELOG*
+- id: release
+  builds:
+  - terraform-provider
+  format: zip
+  name_template: "{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
-  name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
-  algorithm: sha256
-  # Desabilite signing se não usar GPG
-  disable_sign: true
+  name_template: "SHA256SUMS"
 
-nfpms: [] # Remove .deb/.rpm se não for usar
+signs:
+- artifacts: checksum
+  cmd: gpg
+  args:
+  - "--batch"
+  - "--yes"
+  - "--pinentry-mode"
+  - "loopback"
+  - "--passphrase"
+  - "{{ .Env.PASSPHRASE }}"
+  - "--detach-sign"
+  - "{{ .ArtifactPath }}"
 
 release:
-  prerelease: auto
+  github:
+    owner: raywall
+    name: terraform-provider-raysouz
 
-changelog:
-  sort: asc
-  filters:
-    exclude:
-    - '^docs:'
-    - '^test:'
-    - '^chore:'
-
-# IMPORTANTE: Configuração para Terraform Registry
 announce:
-  # Adicione links para documentação
-  twitter:
-    enabled: false
-  mastodon:
-    enabled: false
-  linkedin:
-    enabled: false
-  reddit:
-    enabled: false
-  hackernews:
-    enabled: false
-  bluesky:
-    enabled: false
+  skip: true
