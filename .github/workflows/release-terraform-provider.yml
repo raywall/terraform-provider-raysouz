@@ -104,21 +104,21 @@ jobs:
                   gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
                   passphrase: ${{ secrets.PASSPHRASE }}
 
-            - name: Sign checksums
-              run: |
-                  cd dist
-                  gpg --batch --yes --pinentry-mode loopback \
-                      --passphrase "${{ secrets.PASSPHRASE }}" \
-                      --detach-sign SHA256SUMS
+            # - name: Sign checksums
+            #   run: |
+            #       cd dist
+            #       gpg --batch --yes --pinentry-mode loopback \
+            #           --passphrase "${{ secrets.PASSPHRASE }}" \
+            #           --detach-sign SHA256SUMS
 
             - name: Create GitHub Release
               uses: goreleaser/goreleaser-action@v5
               with:
                   version: latest
                   args: release --clean
-                  env:
-                      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                      GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
 
     #############################################################
     # 3) PUBLICAR NO GO PROXY
