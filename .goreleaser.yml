@@ -48,7 +48,3 @@ release:
 
 announce:
   skip: true
-
-terraform:
-  enabled: true
-  protocol_version: "5.0"
