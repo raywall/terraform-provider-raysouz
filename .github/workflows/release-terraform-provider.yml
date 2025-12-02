@@ -66,9 +66,9 @@ jobs:
                       patch=$((patch + 1))
                       new="v${major}.${minor}.${patch}"
                       if ! git ls-remote --tags origin | grep -q "refs/tags/$new"; then
-                      echo "new_tag=$new" >> $GITHUB_OUTPUT
-                      echo "Next tag: $new"
-                      break
+                        echo "new_tag=$new" >> $GITHUB_OUTPUT
+                        echo "Next tag: $new"
+                        break
                       fi
                   done
 
@@ -99,3 +99,17 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
                   GPG_PASSPHRASE: ${{ secrets.PASSPHRASE }}
+
+            - name: Upload terraform-registry-manifest.json
+              run: |
+                  cat > terraform-registry-manifest.json << EOF
+                  {
+                        "version": 1,
+                        "metadata": {
+                            "protocol_versions": ["5.0"]
+                        }
+                  }
+                  EOF
+                  gh release upload ${{ steps.version.outputs.new_tag }} terraform-registry-manifest.json --clobber
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
