@@ -96,10 +96,10 @@ jobs:
                   passphrase: ${{ secrets.PASSPHRASE }}
 
             - name: Run GoReleaser
-              uses: goreleaser/goreleaser-action@v6 # use v6, está mais estável
+              uses: goreleaser/goreleaser-action@v5
               with:
                   version: latest
-                  args: release --clean --skip-validate # <-- skip-validate evita validação de commit
+                  args: release --clean --skip=validate
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
