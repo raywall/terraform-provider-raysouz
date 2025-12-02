@@ -105,6 +105,22 @@ jobs:
                   GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
                   PASSPHRASE: ${{ secrets.PASSPHRASE }}
 
+            - name: Generate and upload terraform-registry-manifest.json # ← NOVO PASSO: Isso resolve o registry!
+              run: |
+                  # Cria o manifesto correto para SDKv2
+                  cat > terraform-registry-manifest.json << EOF
+                  {
+                      "version": 1,
+                      "metadata": {
+                      "protocol_versions": ["5.0"]
+                      }
+                  }
+                  EOF
+
+                  # Upload como asset na release (usando gh CLI)
+                  gh release upload ${{ steps.version.outputs.new_tag }} terraform-registry-manifest.json --clobber
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     # #############################################################
     # # 3) PUBLICAR NO GO PROXY
     # #############################################################
