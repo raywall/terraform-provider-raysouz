@@ -10,31 +10,24 @@ builds:
 - id: terraform-provider
   main: .
   binary: terraform-provider-raysouz
-  goos:
-  - linux
-  - darwin
-  - windows
-  goarch:
-  - amd64
-  - arm64
+  goos: [ linux, darwin, windows ]
+  goarch: [ amd64, arm64 ]
 
 archives:
 - id: release
-  builds:
-  - terraform-provider
+  builds: [ terraform-provider ]
   format: zip
-  name_template: "{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}" # OK para ZIPs individuais
+  name_template: "{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
-  name_template: SHA256SUMS # ← MUDE: Sem prefixo! Gera SHA256SUMS global
+  name_template: "SHA256SUMS" # ← aspas duplas forçam nome exato
+  disable: false # ← garanta que não está desativado
 
 signs:
-- artifacts: checksum # Assina só checksums
-  cmd: gpg
+- artifacts: checksum
   args:
-  # Ordem correta: output primeiro, depois sign
   - --output
-  - ${signature} # Gera SHA256SUMS.sig automaticamente
+  - "SHA256SUMS.sig" # ← força o nome exato do .sig
   - --detach-sign
   - --batch
   - --yes
@@ -42,8 +35,7 @@ signs:
   - loopback
   - --passphrase
   - "{{ .Env.PASSPHRASE }}"
-  - ${artifact} # Caminho do SHA256SUMS
-  output: "${artifact}.sig" # <--- NOVO: Nomeia o .sig corretamente (ex: SHA256SUMS.sig)
+  - "SHA256SUMS" # ← força o arquivo de entrada
 
 release:
   github:
