@@ -23,23 +23,26 @@ archives:
   builds:
   - terraform-provider
   format: zip
-  name_template: "{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}"
+  name_template: "{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}" # OK para ZIPs individuais
 
 checksum:
-  name_template: "SHA256SUMS"
+  name_template: SHA256SUMS # ← MUDE: Sem prefixo! Gera SHA256SUMS global
 
 signs:
-- artifacts: checksum # Assina só os checksums (SHA256SUMS)
+- artifacts: checksum # Assina só checksums
   cmd: gpg
   args:
-  - "--batch"
-  - "--yes"
-  - "--pinentry-mode"
-  - "loopback"
-  - "--passphrase"
+  # Ordem correta: output primeiro, depois sign
+  - --output
+  - ${signature} # Gera SHA256SUMS.sig automaticamente
+  - --detach-sign
+  - --batch
+  - --yes
+  - --pinentry-mode
+  - loopback
+  - --passphrase
   - "{{ .Env.PASSPHRASE }}"
-  - "--detach-sign"
-  - "${artifact}" # <--- MUDE AQUI: Use ${artifact} (caminho do SHA256SUMS)
+  - ${artifact} # Caminho do SHA256SUMS
   output: "${artifact}.sig" # <--- NOVO: Nomeia o .sig corretamente (ex: SHA256SUMS.sig)
 
 release:
