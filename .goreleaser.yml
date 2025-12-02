@@ -2,45 +2,61 @@ version: 2
 
 project_name: terraform-provider-raysouz
 
+before:
+  hooks:
+  - go mod tidy
+
 builds:
 - env:
+  # goreleaser does not work with CGO, it could also complicate
+  # usage by users in CI/CD systems like Terraform Cloud where
+  # they are unable to install libraries.
   - CGO_ENABLED=0
-  goos: [ linux, darwin, windows ]
-  goarch: [ amd64, arm64 ]
+  mod: mod
   main: .
-  binary: terraform-provider-raysouz
   ldflags:
-  - -s -w
+  - -X 'main/version={{.Version}}'
+  - -X 'main/commit={{.Commit}}'
+  - -X 'main/date={{.CommitDate}}'
+  goos:
+  - linux
+  - darwin
+  - windows
+  goarch:
+  - amd64
+  - arm64
+  binary: terraform-provider-raysouz
 
 archives:
 - format: zip
-  name_template: "terraform-provider-{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}" # Nome exato para ZIPs
+  name_template: "{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
-  name_template: "terraform-provider-{{ .ProjectName }}_{{ .Tag }}_SHA256SUMS" # Nome exato para registry
+  name_template: "{{ .ProjectName }}_{{ .Tag }}_SHA256SUMS"
   algorithm: sha256
 
 signs:
 - artifacts: checksum
-  signature: "terraform-provider-{{ .ProjectName }}_{{ .Tag }}_SHA256SUMS.sig" # Nome exato para .sig
   cmd: gpg
   args:
-  - --detach-sign # Binary signature (não --armor!)
   - --batch
   - --yes
   - --pinentry-mode
   - loopback
   - --passphrase
   - "{{ .Env.GPG_PASSPHRASE }}"
+  - --detach-sign
+  - --armor
   - "${artifact}"
+  output: "${artifact}.sig"
 
 release:
   github:
     owner: raywall
     name: terraform-provider-raysouz
   extra_files:
-  - src: terraform-registry-manifest.json # Copia o manifesto da raiz
-    dst: "terraform-provider-{{ .ProjectName }}_{{ .Tag }}_manifest.json" # Nome exato para registry
+  - glob: terraform-registry-manifest.json
+    # Isso copia o manifesto da raiz para a release sem src/dst (sintaxe v2.x)
 
 announce:
   skip: true
