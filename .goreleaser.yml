@@ -19,15 +19,17 @@ archives:
   format: zip
   name_template: "{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}"
 
+# ← FORÇA nome EXATO do checksum
 checksum:
-  name_template: "SHA256SUMS" # ← aspas duplas forçam nome exato
-  disable: false # ← garanta que não está desativado
+  name_template: "SHA256SUMS"
+  algorithm: sha256
 
+# ← Assina o checksum com nome EXATO SHA256SUMS.sig
 signs:
 - artifacts: checksum
   args:
   - --output
-  - "SHA256SUMS.sig" # ← força o nome exato do .sig
+  - "SHA256SUMS.sig" # ← nome final EXATO (obrigatório)
   - --detach-sign
   - --batch
   - --yes
@@ -35,7 +37,8 @@ signs:
   - loopback
   - --passphrase
   - "{{ .Env.PASSPHRASE }}"
-  - "SHA256SUMS" # ← força o arquivo de entrada
+  - "${checksum}" # ← VARIÁVEL CORRETA do GoReleaser (não use "SHA256SUMS")
+  # NÃO use `output:` nem force o input como string!
 
 release:
   github:
