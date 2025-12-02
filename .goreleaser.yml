@@ -29,7 +29,7 @@ checksum:
   name_template: "SHA256SUMS"
 
 signs:
-- artifacts: checksum
+- artifacts: checksum # Assina só os checksums (SHA256SUMS)
   cmd: gpg
   args:
   - "--batch"
@@ -39,7 +39,8 @@ signs:
   - "--passphrase"
   - "{{ .Env.PASSPHRASE }}"
   - "--detach-sign"
-  - "{{ .ArtifactPath }}"
+  - "${artifact}" # <--- MUDE AQUI: Use ${artifact} (caminho do SHA256SUMS)
+  output: "${artifact}.sig" # <--- NOVO: Nomeia o .sig corretamente (ex: SHA256SUMS.sig)
 
 release:
   github:

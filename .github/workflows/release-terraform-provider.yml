@@ -121,6 +121,7 @@ jobs:
                   gh release upload ${{ steps.version.outputs.new_tag }} terraform-registry-manifest.json --clobber
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     # #############################################################
     # # 3) PUBLICAR NO GO PROXY
     # #############################################################
