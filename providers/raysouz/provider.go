@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/raywall/terraform-provider-raysouz/internal/raysouz/client"
-	resources "github.com/raywall/terraform-provider-raysouz/resources/raysouz"
-
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+
+	"github.com/raywall/terraform-provider-raysouz/internal/raysouz/client"
+	"github.com/raywall/terraform-provider-raysouz/resources/raysouz"
 )
 
+// Provider returns the terraform provider schema and resources map.
 func Provider() *schema.Provider {
 	return &schema.Provider{
 		Schema: map[string]*schema.Schema{
@@ -18,52 +19,25 @@ func Provider() *schema.Provider {
 				Type:        schema.TypeString,
 				Optional:    true,
 				DefaultFunc: schema.EnvDefaultFunc("AWS_REGION", "us-east-1"),
-				Description: "AWS region",
-			},
-			"access_key": {
-				Type:        schema.TypeString,
-				Optional:    true,
-				DefaultFunc: schema.EnvDefaultFunc("AWS_ACCESS_KEY_ID", ""),
-				Description: "AWS access key",
-			},
-			"secret_key": {
-				Type:        schema.TypeString,
-				Optional:    true,
-				Sensitive:   true,
-				DefaultFunc: schema.EnvDefaultFunc("AWS_SECRET_ACCESS_KEY", ""),
-				Description: "AWS secret key",
-			},
-			"profile": {
-				Type:        schema.TypeString,
-				Optional:    true,
-				DefaultFunc: schema.EnvDefaultFunc("AWS_PROFILE", ""),
-				Description: "AWS profile name",
+				Description: "AWS region to use for resources",
 			},
 		},
 		ResourcesMap: map[string]*schema.Resource{
-			"raysouz_apigateway_lambda_routes": resources.ResourceAPIGatewayLambdaRoutes(),
-			"raysouz_custom_resource":          resources.ResourceCustom(),
+			"raysouz_apigateway_lambda_routes": raysouz.ResourceAPIGatewayLambdaRoutes(),
+			"raysouz_custom_resource":          raysouz.ResourceCustom(),
 		},
-		DataSourcesMap:       map[string]*schema.Resource{},
 		ConfigureContextFunc: providerConfigure,
 	}
 }
 
 func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}, diag.Diagnostics) {
+	var diags diag.Diagnostics
 	region := d.Get("region").(string)
-	accessKey := d.Get("access_key").(string)
-	secretKey := d.Get("secret_key").(string)
 
-	// Validate credentials
-	if (accessKey == "" && secretKey != "") || (accessKey != "" && secretKey == "") {
-		return nil, diag.FromErr(fmt.Errorf("both access_key and secret_key must be provided if one is set"))
-	}
-
-	// Create AWS client
-	awsClient, err := client.NewAWSClient(ctx, region, accessKey, secretKey)
+	c, err := client.New(ctx, region)
 	if err != nil {
-		return nil, diag.FromErr(fmt.Errorf("creating AWS client: %w", err))
+		diags = append(diags, diag.FromErr(fmt.Errorf("failed to create aws client: %w", err))...)
+		return nil, diags
 	}
-
-	return awsClient, nil
+	return c, diags
 }

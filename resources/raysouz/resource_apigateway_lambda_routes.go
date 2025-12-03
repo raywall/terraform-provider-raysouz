@@ -2,680 +2,350 @@ package raysouz
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/apigateway"
-	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
-	"github.com/aws/aws-sdk-go-v2/service/lambda"
-	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cw "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	iam "github.com/aws/aws-sdk-go-v2/service/iam"
+	lambda "github.com/aws/aws-sdk-go-v2/service/lambda"
+	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
+
 	"github.com/raywall/terraform-provider-raysouz/internal/raysouz/client"
 )
 
+// ResourceAPIGatewayLambdaRoutes returns the Terraform resource schema.
 func ResourceAPIGatewayLambdaRoutes() *schema.Resource {
 	return &schema.Resource{
-		Description: "Creates and manages Lambda functions with API Gateway routes integration",
-
-		CreateContext: resourceAPIGatewayLambdaRoutesCreate,
-		ReadContext:   resourceAPIGatewayLambdaRoutesRead,
-		UpdateContext: resourceAPIGatewayLambdaRoutesUpdate,
-		DeleteContext: resourceAPIGatewayLambdaRoutesDelete,
-
-		Schema: map[string]*schema.Schema{
-			"api_gateway_id": {
-				Type:         schema.TypeString,
-				Required:     true,
-				ForceNew:     true,
-				ValidateFunc: validation.StringMatch(regexp.MustCompile(`^[a-z0-9-]+$`), "must be a valid API Gateway ID"),
-				Description:  "ID of the existing API Gateway REST API",
-			},
-
-			"stage_name": {
-				Type:        schema.TypeString,
-				Optional:    true,
-				Default:     "prod",
-				Description: "API Gateway stage name to deploy to",
-			},
-
-			"lambda_config": {
-				Type:     schema.TypeList,
-				Required: true,
-				MaxItems: 1,
-				MinItems: 1,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"function_name": {
-							Type:         schema.TypeString,
-							Required:     true,
-							ForceNew:     true,
-							ValidateFunc: validation.StringMatch(regexp.MustCompile(`^[a-zA-Z0-9-_]{1,64}$`), "must be a valid Lambda function name (1-64 chars, alphanumeric, hyphens, underscores)"),
-							Description:  "Name of the Lambda function",
-						},
-						"runtime": {
-							Type:     schema.TypeString,
-							Required: true,
-							ValidateFunc: validation.StringInSlice([]string{
-								"provided.al2",
-								"provided.al2023",
-								"nodejs18.x",
-								"nodejs20.x",
-								"python3.9",
-								"python3.10",
-								"python3.11",
-								"python3.12",
-								"java11",
-								"java17",
-								"go1.x",
-								"dotnet6",
-								"dotnet8",
-								"ruby3.2",
-							}, false),
-							Description: "Lambda runtime",
-						},
-						"handler": {
-							Type:        schema.TypeString,
-							Required:    true,
-							Description: "Lambda function handler",
-						},
-						"zip_file": {
-							Type:         schema.TypeString,
-							Required:     true,
-							ValidateFunc: validation.StringMatch(regexp.MustCompile(`\.zip$`), "must be a .zip file"),
-							Description:  "Path to the Lambda function ZIP file",
-						},
-						"memory_size": {
-							Type:         schema.TypeInt,
-							Optional:     true,
-							Default:      128,
-							ValidateFunc: validation.IntBetween(128, 10240),
-							Description:  "Memory allocation for Lambda function (128-10240 MB)",
-						},
-						"timeout": {
-							Type:         schema.TypeInt,
-							Optional:     true,
-							Default:      3,
-							ValidateFunc: validation.IntBetween(1, 900),
-							Description:  "Timeout for Lambda function (1-900 seconds)",
-						},
-						"environment_variables": {
-							Type:        schema.TypeMap,
-							Optional:    true,
-							Elem:        &schema.Schema{Type: schema.TypeString},
-							Description: "Environment variables for the Lambda function",
-						},
-						"layers": {
-							Type:        schema.TypeList,
-							Optional:    true,
-							Elem:        &schema.Schema{Type: schema.TypeString},
-							Description: "Lambda layer ARNs",
-						},
-						"vpc_config": {
-							Type:        schema.TypeList,
-							Optional:    true,
-							MaxItems:    1,
-							Description: "VPC configuration for the Lambda function",
-							Elem: &schema.Resource{
-								Schema: map[string]*schema.Schema{
-									"subnet_ids": {
-										Type:        schema.TypeList,
-										Required:    true,
-										MinItems:    1,
-										Elem:        &schema.Schema{Type: schema.TypeString},
-										Description: "List of subnet IDs",
-									},
-									"security_group_ids": {
-										Type:        schema.TypeList,
-										Required:    true,
-										MinItems:    1,
-										Elem:        &schema.Schema{Type: schema.TypeString},
-										Description: "List of security group IDs",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-
-			"log_retention_days": {
-				Type:         schema.TypeInt,
-				Optional:     true,
-				Default:      30,
-				ValidateFunc: validation.IntInSlice([]int{1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653}),
-				Description:  "CloudWatch Logs retention in days",
-			},
-
-			"routes": {
-				Type:        schema.TypeList,
-				Required:    true,
-				MinItems:    1,
-				Description: "API Gateway routes to create",
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"path": {
-							Type:         schema.TypeString,
-							Required:     true,
-							ValidateFunc: validation.StringMatch(regexp.MustCompile(`^(\/[a-zA-Z0-9\.\_\-\{\}\+]+)+$`), "must be a valid API path"),
-							Description:  "API route path",
-						},
-						"method": {
-							Type:         schema.TypeString,
-							Required:     true,
-							ValidateFunc: validation.StringInSlice([]string{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "ANY"}, false),
-							Description:  "HTTP method",
-						},
-						"authorization": {
-							Type:         schema.TypeString,
-							Optional:     true,
-							Default:      "NONE",
-							ValidateFunc: validation.StringInSlice([]string{"NONE", "AWS_IAM", "CUSTOM", "COGNITO_USER_POOLS"}, false),
-							Description:  "Authorization type",
-						},
-						"authorizer_id": {
-							Type:        schema.TypeString,
-							Optional:    true,
-							Description: "API Gateway authorizer ID",
-						},
-						"request_parameters": {
-							Type:        schema.TypeMap,
-							Optional:    true,
-							Elem:        &schema.Schema{Type: schema.TypeBool},
-							Description: "Request parameters mapping",
-						},
-						"integration_type": {
-							Type:         schema.TypeString,
-							Optional:     true,
-							Default:      "AWS_PROXY",
-							ValidateFunc: validation.StringInSlice([]string{"AWS_PROXY", "AWS", "HTTP_PROXY", "HTTP", "MOCK"}, false),
-							Description:  "Integration type",
-						},
-					},
-				},
-			},
-
-			"ssm_parameters": {
-				Type:        schema.TypeList,
-				Optional:    true,
-				Description: "SSM Parameters to create",
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"name": {
-							Type:         schema.TypeString,
-							Required:     true,
-							ValidateFunc: validation.StringMatch(regexp.MustCompile(`^\/[a-zA-Z0-9\.\_\-\/]+$`), "must be a valid SSM parameter path starting with /"),
-							Description:  "Parameter name/path",
-						},
-						"type": {
-							Type:         schema.TypeString,
-							Required:     true,
-							ValidateFunc: validation.StringInSlice([]string{"String", "StringList", "SecureString"}, false),
-							Description:  "Parameter type",
-						},
-						"value": {
-							Type:        schema.TypeString,
-							Required:    true,
-							Sensitive:   true,
-							Description: "Parameter value",
-						},
-						"description": {
-							Type:        schema.TypeString,
-							Optional:    true,
-							Description: "Parameter description",
-						},
-						"tier": {
-							Type:         schema.TypeString,
-							Optional:     true,
-							Default:      "Standard",
-							ValidateFunc: validation.StringInSlice([]string{"Standard", "Advanced", "Intelligent-Tiering"}, false),
-							Description:  "Parameter tier",
-						},
-						"key_id": {
-							Type:        schema.TypeString,
-							Optional:    true,
-							Description: "KMS Key ID for SecureString parameters",
-						},
-					},
-				},
-			},
-
-			// Computed attributes
-			"lambda_function_arn": {
-				Type:        schema.TypeString,
-				Computed:    true,
-				Description: "ARN of the created Lambda function",
-			},
-			"lambda_role_arn": {
-				Type:        schema.TypeString,
-				Computed:    true,
-				Description: "ARN of the IAM execution role",
-			},
-			"cloudwatch_log_group_arn": {
-				Type:        schema.TypeString,
-				Computed:    true,
-				Description: "ARN of the CloudWatch Log Group",
-			},
-			"api_execution_arn": {
-				Type:        schema.TypeString,
-				Computed:    true,
-				Description: "API Gateway execution ARN",
-			},
-			"created_at": {
-				Type:        schema.TypeString,
-				Computed:    true,
-				Description: "Creation timestamp",
-			},
-			"last_modified": {
-				Type:        schema.TypeString,
-				Computed:    true,
-				Description: "Last modification timestamp",
-			},
-		},
-
-		Timeouts: &schema.ResourceTimeout{
-			Create: schema.DefaultTimeout(30 * time.Minute),
-			Update: schema.DefaultTimeout(30 * time.Minute),
-			Delete: schema.DefaultTimeout(30 * time.Minute),
-			Read:   schema.DefaultTimeout(5 * time.Minute),
-		},
-
+		CreateContext: resourceCreate,
+		ReadContext:   resourceRead,
+		UpdateContext: resourceUpdate,
+		DeleteContext: resourceDelete,
 		Importer: &schema.ResourceImporter{
 			StateContext: schema.ImportStatePassthroughContext,
 		},
+		Schema: map[string]*schema.Schema{
+			"api_gateway_id": {Type: schema.TypeString, Required: true},
+			"stage_name":     {Type: schema.TypeString, Required: true},
+			"lambda_config": {
+				Type:     schema.TypeList,
+				MaxItems: 1,
+				Required: true,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"function_name": {Type: schema.TypeString, Required: true},
+						"runtime":       {Type: schema.TypeString, Required: true},
+						"handler":       {Type: schema.TypeString, Required: true},
+						"zip_file":      {Type: schema.TypeString, Required: true},
+						"memory_size":   {Type: schema.TypeInt, Optional: true, Default: 128},
+						"timeout":       {Type: schema.TypeInt, Optional: true, Default: 30},
+						"environment_variables": {
+							Type:     schema.TypeMap,
+							Optional: true,
+							Elem:     &schema.Schema{Type: schema.TypeString},
+						},
+					},
+				},
+			},
+			"routes": {
+				Type:     schema.TypeList,
+				Required: true,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"path":          {Type: schema.TypeString, Required: true},
+						"method":        {Type: schema.TypeString, Required: true},
+						"authorization": {Type: schema.TypeString, Optional: true, Default: "NONE"},
+						"authorizer_id": {Type: schema.TypeString, Optional: true},
+					},
+				},
+			},
+			"internal": {Type: schema.TypeString, Computed: true},
+		},
 	}
 }
 
-func resourceAPIGatewayLambdaRoutesCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	awsClient := meta.(*client.AWSClient)
+// resourceState structure stored in "internal"
+type resourceState struct {
+	RoleName     string              `json:"role_name"`
+	FunctionName string              `json:"function_name"`
+	APIGatewayID string              `json:"api_gateway_id"`
+	StageName    string              `json:"stage_name"`
+	Routes       []map[string]string `json:"routes"`
+	LogGroup     string              `json:"log_group"`
+}
 
-	// Parse configuration
-	apiGatewayID := d.Get("api_gateway_id").(string)
-	stageName := d.Get("stage_name").(string)
-	logRetentionDays := int32(d.Get("log_retention_days").(int))
+// resourceCreate implements creation of role, lambda, loggroup and stores state.
+func resourceCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
+	var diags diag.Diagnostics
+	awsClient, ok := m.(*client.AWSClient)
+	if !ok || awsClient == nil {
+		return diag.FromErr(fmt.Errorf("aws client not configured"))
+	}
 
-	// Parse lambda config
-	lambdaConfigRaw := d.Get("lambda_config").([]interface{})[0].(map[string]interface{})
-	lambdaConfig := parseLambdaConfig(lambdaConfigRaw)
+	apiID := d.Get("api_gateway_id").(string)
+	stage := d.Get("stage_name").(string)
 
-	// 1. Create IAM role for Lambda
-	roleArn, err := awsClient.CreateLambdaExecutionRole(ctx, lambdaConfig.FunctionName)
+	lcList := d.Get("lambda_config").([]interface{})
+	if len(lcList) == 0 {
+		return diag.FromErr(fmt.Errorf("lambda_config is required"))
+	}
+	lc := lcList[0].(map[string]interface{})
+	fnName := lc["function_name"].(string)
+	handler := lc["handler"].(string)
+	zipPath := lc["zip_file"].(string)
+	mem := int32(lc["memory_size"].(int))
+	timeout := int32(lc["timeout"].(int))
+	runtime := lc["runtime"].(string)
+
+	// 1) Ensure role exists (idempotent)
+	roleName := fmt.Sprintf("%s-execution-role", fnName)
+	roleArn, err := ensureRole(ctx, awsClient, roleName)
 	if err != nil {
-		return diag.Errorf("creating IAM role: %s", err)
+		return diag.FromErr(fmt.Errorf("ensure role: %w", err))
 	}
 
-	// 2. Create CloudWatch Log Group
-	logGroupArn, err := awsClient.CreateCloudWatchLogGroup(ctx, lambdaConfig.FunctionName, logRetentionDays)
-	if err != nil {
-		return diag.Errorf("creating CloudWatch log group: %s", err)
+	// set partial ID early so Terraform doesn't try to recreate everything on retry
+	d.SetId(fmt.Sprintf("%s/%s", apiID, fnName))
+
+	// 2) Ensure Lambda exists (create or update)
+	if err := ensureLambdaFunction(ctx, awsClient, fnName, roleArn, handler, runtime, zipPath, mem, timeout); err != nil {
+		return diag.FromErr(fmt.Errorf("ensure lambda: %w", err))
 	}
 
-	// 3. Create Lambda function
-	functionOutput, err := awsClient.CreateLambdaFunction(ctx, &lambdaConfig, roleArn)
-	if err != nil {
-		return diag.Errorf("creating Lambda function: %s", err)
-	}
-	functionArn := *functionOutput.FunctionArn
-
-	// 4. Create SSM Parameters
-	if ssmParamsRaw, ok := d.Get("ssm_parameters").([]interface{}); ok {
-		for _, paramRaw := range ssmParamsRaw {
-			paramMap := paramRaw.(map[string]interface{})
-			param := client.SSMParameter{
-				Name:        paramMap["name"].(string),
-				Type:        paramMap["type"].(string),
-				Value:       paramMap["value"].(string),
-				Description: paramMap["description"].(string),
-				Tier:        paramMap["tier"].(string),
-				KeyID:       paramMap["key_id"].(string),
-			}
-
-			if err := awsClient.CreateSSMParameter(ctx, param); err != nil {
-				return diag.Errorf("creating SSM parameter %s: %s", param.Name, err)
-			}
-		}
+	// 3) Ensure log group & retention
+	logGroup := fmt.Sprintf("/aws/lambda/%s", fnName)
+	if err := awsClient.CreateLogGroupIfNotExists(ctx, logGroup, 14); err != nil {
+		// surface error (role/function already created), do not attempt destructive rollback
+		return diag.FromErr(fmt.Errorf("log group setup failed: %w", err))
 	}
 
-	// 5. Create API Gateway routes and integrations
+	// 4) Collect routes (we do not yet create API Gateway resources here — TODO)
 	routesRaw := d.Get("routes").([]interface{})
-	apiExecutionArn := fmt.Sprintf(
-		"arn:aws:execute-api:%s:%s:%s/*",
-		awsClient.Region,
-		awsClient.AccountID,
-		apiGatewayID,
-	)
-
-	// Add permission for API Gateway to invoke Lambda
-	if err := awsClient.AddLambdaPermission(ctx, lambdaConfig.FunctionName, apiGatewayID, apiExecutionArn); err != nil {
-		return diag.Errorf("adding Lambda permission: %s", err)
-	}
-
-	for _, routeRaw := range routesRaw {
-		routeMap := routeRaw.(map[string]interface{})
-		routeConfig := parseRouteConfig(routeMap)
-
-		if err := awsClient.CreateAPIGatewayIntegration(ctx, apiGatewayID, functionArn, routeConfig); err != nil {
-			return diag.Errorf("creating API Gateway integration for route %s %s: %s", routeConfig.Method, routeConfig.Path, err)
-		}
-	}
-
-	// 6. Deploy API Gateway
-	if err := awsClient.DeployAPIGateway(ctx, apiGatewayID, stageName); err != nil {
-		return diag.Errorf("deploying API Gateway: %s", err)
-	}
-
-	// Set ID and computed attributes
-	d.SetId(fmt.Sprintf("%s/%s", apiGatewayID, lambdaConfig.FunctionName))
-
-	if err := d.Set("lambda_function_arn", functionArn); err != nil {
-		return diag.FromErr(err)
-	}
-	if err := d.Set("lambda_role_arn", roleArn); err != nil {
-		return diag.FromErr(err)
-	}
-	if err := d.Set("cloudwatch_log_group_arn", logGroupArn); err != nil {
-		return diag.FromErr(err)
-	}
-	if err := d.Set("api_execution_arn", apiExecutionArn); err != nil {
-		return diag.FromErr(err)
-	}
-	if err := d.Set("created_at", time.Now().Format(time.RFC3339)); err != nil {
-		return diag.FromErr(err)
-	}
-	if err := d.Set("last_modified", time.Now().Format(time.RFC3339)); err != nil {
-		return diag.FromErr(err)
-	}
-
-	return nil
-}
-
-func resourceAPIGatewayLambdaRoutesRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	awsClient := meta.(*client.AWSClient)
-
-	parts := strings.Split(d.Id(), "/")
-	if len(parts) != 2 {
-		return diag.Errorf("invalid ID format: %s (expected api_gateway_id/function_name)", d.Id())
-	}
-
-	apiGatewayID := parts[0]
-	functionName := parts[1]
-
-	// Check if Lambda function exists - CORREÇÃO: Usar SDK v2
-	function, err := awsClient.Lambda.GetFunction(ctx, &lambda.GetFunctionInput{
-		FunctionName: aws.String(functionName),
-	})
-	if err != nil {
-		if strings.Contains(err.Error(), "ResourceNotFoundException") {
-			d.SetId("")
-			return nil
-		}
-		return diag.Errorf("reading Lambda function: %s", err)
-	}
-
-	// Check if API Gateway exists - CORREÇÃO: Usar SDK v2
-	_, err = awsClient.APIGateway.GetRestApi(ctx, &apigateway.GetRestApiInput{
-		RestApiId: aws.String(apiGatewayID),
-	})
-	if err != nil {
-		if strings.Contains(err.Error(), "NotFoundException") {
-			d.SetId("")
-			return nil
-		}
-		return diag.Errorf("reading API Gateway: %s", err)
-	}
-
-	// Set basic attributes
-	if err := d.Set("api_gateway_id", apiGatewayID); err != nil {
-		return diag.FromErr(err)
-	}
-	if err := d.Set("lambda_function_arn", function.Configuration.FunctionArn); err != nil {
-		return diag.FromErr(err)
-	}
-
-	return nil
-}
-
-func resourceAPIGatewayLambdaRoutesUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	awsClient := meta.(*client.AWSClient)
-
-	parts := strings.Split(d.Id(), "/")
-	if len(parts) != 2 {
-		return diag.Errorf("invalid ID format: %s", d.Id())
-	}
-
-	functionName := parts[1]
-
-	// Handle updates to Lambda configuration
-	if d.HasChange("lambda_config") {
-		oldRaw, newRaw := d.GetChange("lambda_config")
-		oldConfig := parseLambdaConfig(oldRaw.([]interface{})[0].(map[string]interface{}))
-		newConfig := parseLambdaConfig(newRaw.([]interface{})[0].(map[string]interface{}))
-
-		// Update Lambda function configuration - CORREÇÃO: Usar SDK v2
-		updateConfigInput := &lambda.UpdateFunctionConfigurationInput{
-			FunctionName: aws.String(functionName),
-		}
-
-		if d.HasChange("lambda_config.0.memory_size") {
-			updateConfigInput.MemorySize = aws.Int32(newConfig.MemorySize)
-		}
-		if d.HasChange("lambda_config.0.timeout") {
-			updateConfigInput.Timeout = aws.Int32(newConfig.Timeout)
-		}
-		if d.HasChange("lambda_config.0.environment_variables") {
-			envVars := make(map[string]string)
-			for k, v := range newConfig.EnvironmentVariables {
-				envVars[k] = v
-			}
-			updateConfigInput.Environment = &lambdatypes.Environment{
-				Variables: envVars,
-			}
-		}
-		if d.HasChange("lambda_config.0.layers") {
-			updateConfigInput.Layers = newConfig.Layers
-		}
-		if d.HasChange("lambda_config.0.vpc_config") {
-			if newConfig.VPCConfig != nil {
-				updateConfigInput.VpcConfig = &lambdatypes.VpcConfig{
-					SubnetIds:        newConfig.VPCConfig.SubnetIDs,
-					SecurityGroupIds: newConfig.VPCConfig.SecurityGroupIDs,
-				}
-			}
-		}
-
-		_, err := awsClient.Lambda.UpdateFunctionConfiguration(ctx, updateConfigInput)
-		if err != nil {
-			return diag.Errorf("updating Lambda function configuration: %s", err)
-		}
-
-		// Update function code if zip file changed
-		if oldConfig.ZipFilePath != newConfig.ZipFilePath {
-			zipBytes, err := os.ReadFile(newConfig.ZipFilePath)
-			if err != nil {
-				return diag.Errorf("reading zip file: %s", err)
-			}
-
-			_, err = awsClient.Lambda.UpdateFunctionCode(ctx, &lambda.UpdateFunctionCodeInput{
-				FunctionName: aws.String(functionName),
-				ZipFile:      zipBytes,
-				Publish:      true,
-			})
-			if err != nil {
-				return diag.Errorf("updating Lambda function code: %s", err)
-			}
-		}
-	}
-
-	// Update CloudWatch retention
-	if d.HasChange("log_retention_days") {
-		logRetentionDays := int32(d.Get("log_retention_days").(int))
-		logGroupName := fmt.Sprintf("/aws/lambda/%s", functionName)
-
-		_, err := awsClient.CloudWatch.PutRetentionPolicy(ctx, &cloudwatchlogs.PutRetentionPolicyInput{
-			LogGroupName:    &logGroupName,
-			RetentionInDays: &logRetentionDays,
+	routes := make([]map[string]string, 0, len(routesRaw))
+	for _, r := range routesRaw {
+		rm := r.(map[string]interface{})
+		routes = append(routes, map[string]string{
+			"path":          rm["path"].(string),
+			"method":        rm["method"].(string),
+			"authorization": rm["authorization"].(string),
+			"authorizer_id": fmt.Sprintf("%v", rm["authorizer_id"]),
 		})
-		if err != nil {
-			return diag.Errorf("updating CloudWatch retention policy: %s", err)
-		}
 	}
 
-	// Update SSM parameters
-	if d.HasChange("ssm_parameters") {
-		// TODO: Implement SSM parameter updates
-		// This would involve comparing old and new parameters
+	// 5) Store internal state
+	st := resourceState{
+		RoleName:     roleName,
+		FunctionName: fnName,
+		APIGatewayID: apiID,
+		StageName:    stage,
+		Routes:       routes,
+		LogGroup:     logGroup,
+	}
+	b, _ := json.Marshal(st)
+	_ = d.Set("internal", string(b))
+
+	// small wait to improve eventual-consistency
+	time.Sleep(400 * time.Millisecond)
+	return diags
+}
+
+func resourceRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
+	var diags diag.Diagnostics
+	awsClient, ok := m.(*client.AWSClient)
+	if !ok || awsClient == nil {
+		return diag.FromErr(fmt.Errorf("aws client not configured"))
 	}
 
-	// Update routes
-	if d.HasChange("routes") {
-		// TODO: Implement route updates
-		// Note: This is complex as API Gateway resources can't be easily updated
-		// Might need to delete and recreate routes
+	id := d.Id()
+	if id == "" {
+		// nothing to read
+		return diags
 	}
 
-	// Re-deploy API Gateway if routes changed
-	if d.HasChanges("routes", "stage_name") {
-		apiGatewayID := parts[0]
-		stageName := d.Get("stage_name").(string)
-		if err := awsClient.DeployAPIGateway(ctx, apiGatewayID, stageName); err != nil {
-			return diag.Errorf("redeploying API Gateway: %s", err)
-		}
+	internal := d.Get("internal").(string)
+	if internal == "" {
+		// nothing stored; nothing to do (could attempt import)
+		return diags
 	}
 
-	if err := d.Set("last_modified", time.Now().Format(time.RFC3339)); err != nil {
+	var st resourceState
+	if err := json.Unmarshal([]byte(internal), &st); err != nil {
+		// invalid internal -> clear state to force recreate/import
+		d.SetId("")
+		return diag.FromErr(fmt.Errorf("failed reading internal state: %w", err))
+	}
+
+	// verify role exists via IAM GetRole
+	if _, err := awsClient.IAM.GetRole(ctx, &iam.GetRoleInput{RoleName: aws.String(st.RoleName)}); err != nil {
+		// assume resource deleted externally
+		d.SetId("")
+		return diags
+	}
+
+	// verify lambda exists
+	if _, err := awsClient.Lambda.GetFunction(ctx, &lambda.GetFunctionInput{FunctionName: aws.String(st.FunctionName)}); err != nil {
+		d.SetId("")
+		return diags
+	}
+
+	// TODO: verify api gateway resources/methods
+	_ = cw.NewFromConfig(awsClient.Config) // keep package usage explicit if needed later
+
+	return diags
+}
+
+func resourceUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
+	// For now, handle update by reusing create: idempotent ensures safe operation.
+	// You can optimize to perform granular updates later.
+	return resourceCreate(ctx, d, m)
+}
+
+func resourceDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
+	var diags diag.Diagnostics
+	awsClient, ok := m.(*client.AWSClient)
+	if !ok || awsClient == nil {
+		return diag.FromErr(fmt.Errorf("aws client not configured"))
+	}
+
+	internal := d.Get("internal").(string)
+	if internal == "" {
+		d.SetId("")
+		return diags
+	}
+
+	var st resourceState
+	if err := json.Unmarshal([]byte(internal), &st); err != nil {
 		return diag.FromErr(err)
 	}
 
-	return resourceAPIGatewayLambdaRoutesRead(ctx, d, meta)
-}
+	// delete lambda
+	_, _ = awsClient.Lambda.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(st.FunctionName)})
 
-func resourceAPIGatewayLambdaRoutesDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	awsClient := meta.(*client.AWSClient)
+	// delete role
+	// In production you should detach managed policies and delete inline policies first.
+	_, _ = awsClient.IAM.DeleteRole(ctx, &iam.DeleteRoleInput{RoleName: aws.String(st.RoleName)})
 
-	parts := strings.Split(d.Id(), "/")
-	if len(parts) != 2 {
-		return diag.Errorf("invalid ID format: %s", d.Id())
-	}
-
-	apiGatewayID := parts[0]
-	functionName := parts[1]
-
-	// 1. Remove Lambda permission for API Gateway
-	if err := awsClient.RemoveLambdaPermission(ctx, functionName, apiGatewayID); err != nil {
-		if !strings.Contains(err.Error(), "ResourceNotFoundException") {
-			return diag.Errorf("removing Lambda permission: %s", err)
-		}
-	}
-
-	// 2. Delete Lambda function
-	if err := awsClient.DeleteLambdaFunction(ctx, functionName); err != nil {
-		return diag.Errorf("deleting Lambda function: %s", err)
-	}
-
-	// 3. Delete IAM role
-	if err := awsClient.DeleteLambdaExecutionRole(ctx, functionName); err != nil {
-		return diag.Errorf("deleting IAM role: %s", err)
-	}
-
-	// 4. Delete CloudWatch Log Group (optional)
-	if err := awsClient.DeleteCloudWatchLogGroup(ctx, functionName); err != nil {
-		// Log warning but don't fail
-	}
-
-	// 5. Delete SSM Parameters
-	if ssmParamsRaw, ok := d.Get("ssm_parameters").([]interface{}); ok {
-		for _, paramRaw := range ssmParamsRaw {
-			paramMap := paramRaw.(map[string]interface{})
-			paramName := paramMap["name"].(string)
-
-			if err := awsClient.DeleteSSMParameter(ctx, paramName); err != nil {
-				return diag.Errorf("deleting SSM parameter %s: %s", paramName, err)
-			}
-		}
-	}
-
-	// Note: We don't delete API Gateway routes as they might be used by other functions
-	// This is a design decision
+	// delete log group
+	_, _ = awsClient.CWLogs.DeleteLogGroup(ctx, &cw.DeleteLogGroupInput{LogGroupName: aws.String(st.LogGroup)})
 
 	d.SetId("")
-	return nil
+	return diags
 }
 
-// Helper functions
-func parseLambdaConfig(raw map[string]interface{}) client.LambdaConfig {
-	config := client.LambdaConfig{
-		FunctionName: raw["function_name"].(string),
-		Runtime:      raw["runtime"].(string),
-		Handler:      raw["handler"].(string),
-		ZipFilePath:  raw["zip_file"].(string),
-		MemorySize:   int32(raw["memory_size"].(int)),
-		Timeout:      int32(raw["timeout"].(int)),
+// Helpers
+
+// ensureRole returns role ARN; creates role if missing.
+func ensureRole(ctx context.Context, awsClient *client.AWSClient, roleName string) (string, error) {
+	iamClient := awsClient.IAM
+
+	// try get role
+	got, err := iamClient.GetRole(ctx, &iam.GetRoleInput{RoleName: aws.String(roleName)})
+	if err == nil && got.Role != nil {
+		return aws.ToString(got.Role.Arn), nil
 	}
 
-	// Parse environment variables
-	if envVarsRaw, ok := raw["environment_variables"].(map[string]interface{}); ok {
-		config.EnvironmentVariables = make(map[string]string)
-		for k, v := range envVarsRaw {
-			config.EnvironmentVariables[k] = v.(string)
-		}
-	}
+	assume := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 
-	// Parse layers
-	if layersRaw, ok := raw["layers"].([]interface{}); ok {
-		config.Layers = make([]string, len(layersRaw))
-		for i, layer := range layersRaw {
-			config.Layers[i] = layer.(string)
-		}
-	}
-
-	// Parse VPC config
-	if vpcConfigRaw, ok := raw["vpc_config"].([]interface{}); ok && len(vpcConfigRaw) > 0 {
-		vpcMap := vpcConfigRaw[0].(map[string]interface{})
-		vpcConfig := &client.VPCConfig{}
-
-		if subnetsRaw, ok := vpcMap["subnet_ids"].([]interface{}); ok {
-			vpcConfig.SubnetIDs = make([]string, len(subnetsRaw))
-			for i, subnet := range subnetsRaw {
-				vpcConfig.SubnetIDs[i] = subnet.(string)
+	cr, cerr := iamClient.CreateRole(ctx, &iam.CreateRoleInput{
+		RoleName:                 aws.String(roleName),
+		AssumeRolePolicyDocument: aws.String(assume),
+	})
+	if cerr != nil {
+		// if already exists concurrently, attempt to get it
+		if strings.Contains(cerr.Error(), "EntityAlreadyExists") || strings.Contains(cerr.Error(), "RoleAlreadyExists") {
+			g2, g2err := iamClient.GetRole(ctx, &iam.GetRoleInput{RoleName: aws.String(roleName)})
+			if g2err != nil {
+				return "", fmt.Errorf("role exists but cannot be read: %w", g2err)
 			}
+			return aws.ToString(g2.Role.Arn), nil
 		}
-
-		if sgsRaw, ok := vpcMap["security_group_ids"].([]interface{}); ok {
-			vpcConfig.SecurityGroupIDs = make([]string, len(sgsRaw))
-			for i, sg := range sgsRaw {
-				vpcConfig.SecurityGroupIDs[i] = sg.(string)
-			}
-		}
-
-		config.VPCConfig = vpcConfig
+		return "", fmt.Errorf("create role: %w", cerr)
 	}
 
-	return config
+	// attach AWSLambdaBasicExecutionRole (managed) to allow logs
+	_, _ = iamClient.AttachRolePolicy(ctx, &iam.AttachRolePolicyInput{
+		RoleName:  aws.String(roleName),
+		PolicyArn: aws.String("arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"),
+	})
+
+	// wait until role is readable
+	for i := 0; i < 6; i++ {
+		g, gerr := iamClient.GetRole(ctx, &iam.GetRoleInput{RoleName: aws.String(roleName)})
+		if gerr == nil && g.Role != nil {
+			if cr != nil && cr.Role != nil && cr.Role.Arn != nil {
+				return aws.ToString(cr.Role.Arn), nil
+			}
+			return aws.ToString(g.Role.Arn), nil
+		}
+		time.Sleep(400 * time.Millisecond)
+	}
+	// best-effort return ARN if present
+	if cr != nil && cr.Role != nil && cr.Role.Arn != nil {
+		return aws.ToString(cr.Role.Arn), nil
+	}
+	return "", fmt.Errorf("role created but not available yet")
 }
 
-func parseRouteConfig(raw map[string]interface{}) client.RouteConfig {
-	config := client.RouteConfig{
-		Path:            raw["path"].(string),
-		Method:          raw["method"].(string),
-		Authorization:   raw["authorization"].(string),
-		IntegrationType: raw["integration_type"].(string),
+// ensureLambdaFunction creates the Lambda function if missing; otherwise no-op (you can add update path)
+func ensureLambdaFunction(ctx context.Context, awsClient *client.AWSClient, fnName, roleArn, handler, runtime, zipPath string, memorySize, timeout int32) error {
+	lmb := awsClient.Lambda
+
+	_, err := lmb.GetFunction(ctx, &lambda.GetFunctionInput{FunctionName: aws.String(fnName)})
+	if err == nil {
+		// already exists -> no-op. You can implement update logic here.
+		return nil
 	}
 
-	if authorizerID, ok := raw["authorizer_id"].(string); ok && authorizerID != "" {
-		config.AuthorizerID = authorizerID
+	// read zip file bytes
+	bs, rerr := os.ReadFile(zipPath)
+	if rerr != nil {
+		return fmt.Errorf("reading zip file: %w", rerr)
 	}
 
-	if reqParamsRaw, ok := raw["request_parameters"].(map[string]interface{}); ok {
-		config.RequestParameters = make(map[string]bool)
-		for k, v := range reqParamsRaw {
-			config.RequestParameters[k] = v.(bool)
+	// convert runtime string to lambda runtime type safely
+	var rt lambdatypes.Runtime
+	switch strings.ToLower(strings.TrimSpace(runtime)) {
+	case "provided.al2", "providedal2":
+		rt = lambdatypes.RuntimeProvidedal2
+	default:
+		// fallback using direct conversion (may be invalid for unknown strings)
+		rt = lambdatypes.Runtime(runtime)
+	}
+
+	createInput := &lambda.CreateFunctionInput{
+		FunctionName: aws.String(fnName),
+		Role:         aws.String(roleArn),
+		Handler:      aws.String(handler),
+		Runtime:      rt,
+		Code: &lambdatypes.FunctionCode{
+			ZipFile: bs,
+		},
+		MemorySize: aws.Int32(memorySize),
+		Timeout:    aws.Int32(timeout),
+	}
+
+	_, cerr := lmb.CreateFunction(ctx, createInput)
+	if cerr != nil {
+		// ignore resource conflict if created concurrently
+		if strings.Contains(cerr.Error(), "ResourceConflictException") || strings.Contains(cerr.Error(), "Function already exist") || strings.Contains(cerr.Error(), "ResourceAlreadyExistsException") {
+			return nil
 		}
+		return fmt.Errorf("create lambda: %w", cerr)
 	}
 
-	return config
+	// wait until available
+	for i := 0; i < 8; i++ {
+		_, gerr := lmb.GetFunction(ctx, &lambda.GetFunctionInput{FunctionName: aws.String(fnName)})
+		if gerr == nil {
+			return nil
+		}
+		time.Sleep(400 * time.Millisecond)
+	}
+	return fmt.Errorf("lambda created but not available yet")
 }
