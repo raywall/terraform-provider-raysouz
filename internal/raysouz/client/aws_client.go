@@ -27,7 +27,9 @@ type AWSClient struct {
 	APIGW   *apigw.Client   // REST API (v1)
 	APIGWv2 *apigwv2.Client // HTTP API (v2)
 	STS     *sts.Client
+	S3 *s3.Client
 	region  string
+	S3Bucket string
 }
 
 // New creates a new AWSClient for the provided region (if empty, uses default chain)
@@ -51,7 +53,9 @@ func New(ctx context.Context, region string) (*AWSClient, error) {
 		APIGW:   apigw.NewFromConfig(cfg),
 		APIGWv2: apigwv2.NewFromConfig(cfg),
 		STS:     sts.NewFromConfig(cfg),
+		S3: s3.NewFromConfig(cfg),
 		region:  cfg.Region,
+		S3Bucket: "",
 	}, nil
 }
 
