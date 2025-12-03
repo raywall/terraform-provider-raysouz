@@ -9,19 +9,22 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	apigw "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
 	cw "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	iam "github.com/aws/aws-sdk-go-v2/service/iam"
 	lambda "github.com/aws/aws-sdk-go-v2/service/lambda"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 )
 
 // AWSClient holds AWS service clients used by the provider.
 type AWSClient struct {
-	// Exported so other packages can use it if needed.
 	Config aws.Config
 	IAM    *iam.Client
 	Lambda *lambda.Client
 	CWLogs *cw.Client
+	APIGW  *apigw.Client
+	STS    *sts.Client
 	region string
 }
 
@@ -43,7 +46,9 @@ func New(ctx context.Context, region string) (*AWSClient, error) {
 		IAM:    iam.NewFromConfig(cfg),
 		Lambda: lambda.NewFromConfig(cfg),
 		CWLogs: cw.NewFromConfig(cfg),
-		region: region,
+		APIGW:  apigw.NewFromConfig(cfg),
+		STS:    sts.NewFromConfig(cfg),
+		region: cfg.Region,
 	}, nil
 }
 
