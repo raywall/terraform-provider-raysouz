@@ -9,7 +9,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
-	apigw "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
+	apigw "github.com/aws/aws-sdk-go-v2/service/apigateway"
+	apigwv2 "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
 	cw "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	iam "github.com/aws/aws-sdk-go-v2/service/iam"
 	lambda "github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -19,13 +20,14 @@ import (
 
 // AWSClient holds AWS service clients used by the provider.
 type AWSClient struct {
-	Config aws.Config
-	IAM    *iam.Client
-	Lambda *lambda.Client
-	CWLogs *cw.Client
-	APIGW  *apigw.Client
-	STS    *sts.Client
-	region string
+	Config  aws.Config
+	IAM     *iam.Client
+	Lambda  *lambda.Client
+	CWLogs  *cw.Client
+	APIGW   *apigw.Client   // REST API (v1)
+	APIGWv2 *apigwv2.Client // HTTP API (v2)
+	STS     *sts.Client
+	region  string
 }
 
 // New creates a new AWSClient for the provided region (if empty, uses default chain)
@@ -42,13 +44,14 @@ func New(ctx context.Context, region string) (*AWSClient, error) {
 	}
 
 	return &AWSClient{
-		Config: cfg,
-		IAM:    iam.NewFromConfig(cfg),
-		Lambda: lambda.NewFromConfig(cfg),
-		CWLogs: cw.NewFromConfig(cfg),
-		APIGW:  apigw.NewFromConfig(cfg),
-		STS:    sts.NewFromConfig(cfg),
-		region: cfg.Region,
+		Config:  cfg,
+		IAM:     iam.NewFromConfig(cfg),
+		Lambda:  lambda.NewFromConfig(cfg),
+		CWLogs:  cw.NewFromConfig(cfg),
+		APIGW:   apigw.NewFromConfig(cfg),
+		APIGWv2: apigwv2.NewFromConfig(cfg),
+		STS:     sts.NewFromConfig(cfg),
+		region:  cfg.Region,
 	}, nil
 }
 
