@@ -14,3 +14,5 @@ main
 ## go
 go.mod
 go.sum
+
+terraform-provider-raysouz

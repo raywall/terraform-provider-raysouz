@@ -5,7 +5,7 @@ import (
 	"flag"
 	"log"
 
-	providers "github.com/raywall/terraform-provider-raysouz/providers/raysouz"
+	raysouz "github.com/raywall/terraform-provider-raysouz/provider" // Aponta para o provider/provider.go
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/plugin"
 )
@@ -17,7 +17,7 @@ func main() {
 	flag.Parse()
 
 	opts := &plugin.ServeOpts{
-		ProviderFunc: providers.Provider,
+		ProviderFunc: raysouz.Provider,
 	}
 
 	if debugMode {

@@ -481,6 +481,89 @@ terraform-provider-raysouz/
 │ └── aws_client.go # Cliente AWS
 └── resource_apigateway_lambda_routes.go # Resource principal
 
-```
+````
 
-```
+## Exemplo prático
+
+```hcl
+variable "aws_region" {
+  type    = string
+  default = "us-east-1"
+}
+
+variable "aws_api_gateway_authorizer" {
+  type    = string
+  default = "koa23y"
+}
+
+
+terraform {
+  required_version = ">= 1.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+    }
+    raysouz = {
+      source = "raywall/raysouz"
+      # version = "~> 1.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = var.aws_region
+}
+
+provider "raysouz" {
+  region = var.aws_region
+}
+
+data "aws_api_gateway_rest_api" "main" {
+  name = "nome-da-minha-api"
+}
+
+resource "raysouz_apigateway_lambda_routes" "simple_api" {
+  api_gateway_id = data.aws_api_gateway_rest_api.main.id
+  stage_name     = "prod"
+
+  lambda_config {
+    function_name = "pessoas-api-handler"
+    runtime       = "provided.al2"
+    handler       = "bootstrap"
+    zip_file      = "${path.module}/application.zip"
+    memory_size   = 256
+    timeout       = 30
+
+    attached_policy_arns = [
+      "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess",
+    ]
+
+    environment_variables = {
+      ENVIRONMENT         = "prod"
+      LOG_LEVEL           = "INFO"
+      DYNAMODB_TABLE_NAME = "db_pessoas"
+      DYNAMODB_HASH_KEY   = "id_pessoa"
+    }
+  }
+
+  routes {
+    path          = "/pessoas"
+    method        = "GET"
+    authorization = "CUSTOM"
+    authorizer_id = var.aws_api_gateway_authorizer
+  }
+
+  routes {
+    path          = "/pessoas/{pessoaId}"
+    method        = "GET"
+    authorization = "CUSTOM"
+    authorizer_id = var.aws_api_gateway_authorizer
+  }
+}
+````
