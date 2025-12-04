@@ -1,0 +1,21 @@
+/Users/macmini/Documents/workspace/terraform/terraform-provider-raysouz
+├── docs
+│   └── resources
+│       └── apigateway_lambda_routes.md
+├── go.mod
+├── go.sum
+├── provider
+│   │── provider.go
+│   └── internal
+│       ├── client
+│       │   └── aws_client.go
+│       ├── repository
+│       │   └── aw_iam_repository.go
+│       ├── resource
+│       │   └── aws_apigateway_lambda_routes.go
+│       └── service
+│           └── aws_lambda_deployment_service.go
+├── main.go
+├── Makefile
+├── README.md
+└── terraform-registry-manifest.json
