@@ -157,40 +157,6 @@ func (r *LambdaRepository) updateFunctionCodeFromS3(ctx context.Context, functio
 	return nil
 }
 
-// waitForActive aguarda a função Lambda estar no estado Active
-func (r *LambdaRepository) waitForActive(ctx context.Context, functionName string) error {
-	maxRetries := 60 // 60 tentativas
-	retryDelay := 2 * time.Second
-
-	for i := 0; i < maxRetries; i++ {
-		resp, err := r.Client.Lambda.GetFunction(ctx, &lambda.GetFunctionInput{
-			FunctionName: aws.String(functionName),
-		})
-
-		if err != nil {
-			return fmt.Errorf("checking function status: %w", err)
-		}
-
-		state := resp.Configuration.State
-		lastUpdateStatus := resp.Configuration.LastUpdateStatus
-
-		// Estados considerados "prontos"
-		if state == types.StateActive && lastUpdateStatus == types.LastUpdateStatusSuccessful {
-			return nil
-		}
-
-		// Estados de falha
-		if state == types.StateFailed || lastUpdateStatus == types.LastUpdateStatusFailed {
-			return fmt.Errorf("function in failed state: %s (last update: %s)", state, lastUpdateStatus)
-		}
-
-		// Aguarda antes da próxima tentativa
-		time.Sleep(retryDelay)
-	}
-
-	return fmt.Errorf("timeout waiting for function to become active after %d retries", maxRetries)
-}
-
 // AddPermission adiciona permissão de invocação (usado para APIGW).
 func (r *LambdaRepository) AddPermission(ctx context.Context, functionName, apiID, sourceArn string) error {
 	statementID := fmt.Sprintf("apigateway-%s", apiID)
@@ -264,21 +230,38 @@ func (r *LambdaRepository) updateFunctionCode(ctx context.Context, functionName 
 	return nil
 }
 
+// waitForActive aguarda a função Lambda estar no estado Active
 func (r *LambdaRepository) waitForActive(ctx context.Context, functionName string) error {
-	waiter := lambda.NewFunctionActiveWaiter(r.Client.Lambda)
+	maxRetries := 60 // 60 tentativas
+	retryDelay := 2 * time.Second
 
-	// Usamos GetFunctionConfigurationInput devido ao erro de compilação anterior
-	waiterErr := waiter.Wait(ctx, &lambda.GetFunctionConfigurationInput{FunctionName: aws.String(functionName)}, 30*time.Second)
+	for i := 0; i < maxRetries; i++ {
+		resp, err := r.Client.Lambda.GetFunction(ctx, &lambda.GetFunctionInput{
+			FunctionName: aws.String(functionName),
+		})
 
-	if waiterErr != nil {
-		// Loga o aviso, mas tenta uma checagem final.
-		if _, checkErr := r.GetFunction(ctx, functionName); checkErr != nil {
-			return fmt.Errorf("function update wait failed and final check failed: %w", checkErr)
+		if err != nil {
+			return fmt.Errorf("checking function status: %w", err)
 		}
-		// Se a checagem final passar, ignoramos o erro de timeout do waiter.
-		fmt.Printf("Warning: function update wait failed but final check passed: %v\n", waiterErr)
+
+		state := resp.Configuration.State
+		lastUpdateStatus := resp.Configuration.LastUpdateStatus
+
+		// Estados considerados "prontos"
+		if state == types.StateActive && lastUpdateStatus == types.LastUpdateStatusSuccessful {
+			return nil
+		}
+
+		// Estados de falha
+		if state == types.StateFailed || lastUpdateStatus == types.LastUpdateStatusFailed {
+			return fmt.Errorf("function in failed state: %s (last update: %s)", state, lastUpdateStatus)
+		}
+
+		// Aguarda antes da próxima tentativa
+		time.Sleep(retryDelay)
 	}
-	return nil
+
+	return fmt.Errorf("timeout waiting for function to become active after %d retries", maxRetries)
 }
 
 func mapRuntime(runtime string) types.Runtime {
