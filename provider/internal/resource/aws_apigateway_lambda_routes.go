@@ -37,9 +37,9 @@ func ResourceAPIGatewayLambdaRoutes() *schema.Resource {
 						"runtime":       {Type: schema.TypeString, Required: true},
 						"timeout":       {Type: schema.TypeInt, Optional: true, Default: 30},
 						"memory_size":   {Type: schema.TypeInt, Optional: true, Default: 128},
-						"zip_file":      {Type: schema.TypeString, Required: true},
-						"s3_bucket":     {Type: schema.TypeString, Required: true},
-						"s3_key":        {Type: schema.TypeString, Required: true},
+						"zip_file":      {Type: schema.TypeString, Optional: true}, // MUDOU PARA OPTIONAL
+						"s3_bucket":     {Type: schema.TypeString, Optional: true}, // MUDOU PARA OPTIONAL
+						"s3_key":        {Type: schema.TypeString, Optional: true}, // MUDOU PARA OPTIONAL
 						"environment_variables": {
 							Type:     schema.TypeMap,
 							Optional: true,
@@ -73,7 +73,7 @@ func ResourceAPIGatewayLambdaRoutes() *schema.Resource {
 
 // resourceCreate (Controller) - Mapeia e chama o Service
 func resourceCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	// 1. Acesso ao ConfigurationBundle (CORRIGIDO: usa 'raysouz' como alias)
+	// 1. Acesso ao ConfigurationBundle
 	bundle, ok := m.(*models.ConfigurationBundle)
 	if !ok || bundle.DeployService == nil {
 		return diag.FromErr(fmt.Errorf("deployment service not configured"))
@@ -83,7 +83,12 @@ func resourceCreate(ctx context.Context, d *schema.ResourceData, m interface{}) 
 	apiID := d.Get("api_gateway_id").(string)
 	stage := d.Get("stage_name").(string)
 
-	lc, routes := extractConfig(d) // lc e routes são tipos 'types.'
+	lc, routes := extractConfig(d)
+
+	// VALIDAÇÃO: deve ter zip_file OU (s3_bucket E s3_key)
+	if err := validateLambdaSource(lc); err != nil {
+		return diag.FromErr(err)
+	}
 
 	// 3. Executa a Lógica (Chama o Service)
 	state, err := bundle.DeployService.EnsureDeployment(ctx, extractAPIID(apiID), stage, lc, routes)
@@ -117,15 +122,12 @@ func resourceRead(ctx context.Context, d *schema.ResourceData, m interface{}) di
 		return diag.FromErr(fmt.Errorf("failed reading internal state: %w", err))
 	}
 
-	// CORREÇÃO: Chama o Service Facade para verificar o estado completo
 	exists, err := bundle.DeployService.CheckResourceExistence(ctx, &st)
 	if err != nil {
-		// Se houver erro de comunicação/API, retorna diag.FromErr
 		return diag.FromErr(fmt.Errorf("failed during existence check: %w", err))
 	}
 
 	if !exists {
-		// Se o Service diz que não existe (Role ou Lambda), marca como drift
 		d.SetId("")
 	}
 
@@ -144,7 +146,6 @@ func resourceDelete(ctx context.Context, d *schema.ResourceData, m interface{}) 
 		return diag.FromErr(fmt.Errorf("deployment service not configured"))
 	}
 
-	// 1. Recupera o estado
 	internal := d.Get("internal").(string)
 	if internal == "" {
 		d.SetId("")
@@ -156,7 +157,6 @@ func resourceDelete(ctx context.Context, d *schema.ResourceData, m interface{}) 
 		return diag.FromErr(err)
 	}
 
-	// 2. Chama o método de serviço para limpar todos os recursos
 	if err := bundle.DeployService.DeleteDeployment(ctx, &st); err != nil {
 		return diag.FromErr(fmt.Errorf("failed to delete deployment: %w", err))
 	}
@@ -165,8 +165,31 @@ func resourceDelete(ctx context.Context, d *schema.ResourceData, m interface{}) 
 	return nil
 }
 
-// extractAPIID (Função auxiliar, movida para aqui ou para outro utilitário)
-// DEFINIÇÃO MOVIDA PARA ESTE ARQUIVO (já que era auxiliar)
+// validateLambdaSource valida se a origem do código Lambda é válida
+func validateLambdaSource(lc *dto.LambdaConfig) error {
+	hasZipFile := lc.ZipPath != ""
+	hasS3Source := lc.S3Bucket != "" && lc.S3Key != ""
+
+	if !hasZipFile && !hasS3Source {
+		return fmt.Errorf("lambda_config must have either 'zip_file' or both 's3_bucket' and 's3_key'")
+	}
+
+	if hasZipFile && hasS3Source {
+		return fmt.Errorf("lambda_config cannot have both 'zip_file' and S3 source ('s3_bucket'/'s3_key')")
+	}
+
+	if lc.S3Bucket != "" && lc.S3Key == "" {
+		return fmt.Errorf("when 's3_bucket' is provided, 's3_key' must also be provided")
+	}
+
+	if lc.S3Bucket == "" && lc.S3Key != "" {
+		return fmt.Errorf("when 's3_key' is provided, 's3_bucket' must also be provided")
+	}
+
+	return nil
+}
+
+// extractAPIID extrai o ID da API do formato completo
 func extractAPIID(apiID string) string {
 	parts := strings.Split(apiID, ":")
 	if len(parts) > 1 {
