@@ -8,10 +8,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 
 	"github.com/raywall/terraform-provider-raysouz/provider/internal/client"
+	"github.com/raywall/terraform-provider-raysouz/provider/internal/models"
 	"github.com/raywall/terraform-provider-raysouz/provider/internal/repository"
 	"github.com/raywall/terraform-provider-raysouz/provider/internal/resource"
 	"github.com/raywall/terraform-provider-raysouz/provider/internal/service"
-	"github.com/raywall/terraform-provider-raysouz/provider/internal/models"
 )
 
 // Provider retorna o schema e resources map.
