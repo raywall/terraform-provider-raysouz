@@ -16,7 +16,6 @@ type CWLogsRepository struct {
 	Client *client.AWSClient
 }
 
-
 // CreateLogGroupIfNotExists cria um Log Group e define a retenção.
 func (r *CWLogsRepository) CreateLogGroupIfNotExists(ctx context.Context, name string, retentionDays int32) error {
 	// Try to create log group; if already exists, ignore

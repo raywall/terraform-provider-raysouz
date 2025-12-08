@@ -2,8 +2,8 @@ package service
 
 import (
 	"context"
-	"time"
 	"fmt"
+	"time"
 
 	dto "github.com/raywall/terraform-provider-raysouz/pkg/types"
 	"github.com/raywall/terraform-provider-raysouz/provider/internal/client"
