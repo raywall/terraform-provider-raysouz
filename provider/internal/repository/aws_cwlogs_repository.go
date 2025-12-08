@@ -16,46 +16,54 @@ type CWLogsRepository struct {
 	Client *client.AWSClient
 }
 
-// CreateLogGroupIfNotExists cria um Log Group e define a retenção.
-func (r *CWLogsRepository) CreateLogGroupIfNotExists(ctx context.Context, name string, retentionDays int32) error {
-	// Try to create log group; if already exists, ignore
-	_, err := r.Client.CWLogs.CreateLogGroup(ctx, &cw.CreateLogGroupInput{
-		LogGroupName: &name,
+// CreateLogGroupIfNotExists cria um log group se ele não existir
+func (r *CWLogsRepository) CreateLogGroupIfNotExists(ctx context.Context, groupName string, retentionDays int32) error {
+	_, err := r.Client.Logs.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{
+		LogGroupName: aws.String(groupName),
 	})
-	if err != nil {
-		// Se já existe, ignora e continua para definir a retenção
-		if !isAPIErrorCode(err, "ResourceAlreadyExistsException") && !isAPIErrorCode(err, "ResourceAlreadyExists") {
-			return fmt.Errorf("CreateLogGroup: %w", err)
-		}
+
+	// CORREÇÃO: Verifica se err é nil ANTES de chamar isAPIErrorCode
+	if err == nil {
+		// Log group criado com sucesso
+		return nil
 	}
 
-	// Tenta definir a retenção (pode falhar por eventual consistência)
-	err = r.retry(ctx, 6, 300*time.Millisecond, func() error {
-		_, perr := r.Client.CWLogs.PutRetentionPolicy(ctx, &cw.PutRetentionPolicyInput{
-			LogGroupName:    &name,
-			RetentionInDays: &retentionDays,
-		})
-		// Se a retenção já estiver definida (InvalidParameterException), considera sucesso
-		if isAPIErrorCode(perr, "InvalidParameterException") {
-			return nil
-		}
-		return perr
-	})
-	if err != nil {
-		return fmt.Errorf("PutRetentionPolicy failed after retries: %w", err)
+	if isAPIErrorCode(err, "ResourceAlreadyExistsException") {
+		// Log group já existe, não é um erro
+		return nil
 	}
-	return nil
+
+	return fmt.Errorf("creating log group: %w", err)
 }
 
-// DeleteLogGroup deleta o Log Group.
-func (r *CWLogsRepository) DeleteLogGroup(ctx context.Context, logGroupName string) error {
-	_, err := r.Client.CWLogs.DeleteLogGroup(ctx, &cw.DeleteLogGroupInput{
-		LogGroupName: aws.String(logGroupName),
+// GetLogGroup recupera informações sobre um log group
+func (r *CWLogsRepository) GetLogGroup(ctx context.Context, groupName string) (*cloudwatchlogs.DescribeLogGroupsOutput, error) {
+	output, err := r.Client.Logs.DescribeLogGroups(ctx, &cloudwatchlogs.DescribeLogGroupsInput{
+		LogGroupNamePrefix: aws.String(groupName),
 	})
-	if err != nil && !isAPIErrorCode(err, "ResourceNotFoundException") {
-		return fmt.Errorf("DeleteLogGroup failed: %w", err)
+
+	if err != nil {
+		return nil, fmt.Errorf("describing log groups: %w", err)
 	}
-	return nil
+
+	return output, nil
+}
+
+// DeleteLogGroup deleta um log group
+func (r *CWLogsRepository) DeleteLogGroup(ctx context.Context, groupName string) error {
+	_, err := r.Client.Logs.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{
+		LogGroupName: aws.String(groupName),
+	})
+
+	if err == nil {
+		return nil
+	}
+
+	if isAPIErrorCode(err, "ResourceNotFoundException") {
+		return nil
+	}
+
+	return fmt.Errorf("deleting log group: %w", err)
 }
 
 // --- Métodos Privados ---
@@ -79,14 +87,17 @@ func (r *CWLogsRepository) retry(ctx context.Context, attempts int, initial time
 	return lastErr
 }
 
-// isAPIErrorCode verifica o código de erro smithy APIError
+// isAPIErrorCode verifica se o erro é um erro da API com o código especificado
 func isAPIErrorCode(err error, code string) bool {
+	// CORREÇÃO CRÍTICA: Verifica se err é nil primeiro
 	if err == nil {
 		return false
 	}
+
 	var apiErr smithy.APIError
-	if apiErr.ErrorCode() == code {
-		return true
+	if errors.As(err, &apiErr) {
+		return apiErr.ErrorCode() == code
 	}
+
 	return false
 }
