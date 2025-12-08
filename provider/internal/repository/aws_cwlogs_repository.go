@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -18,7 +19,7 @@ type CWLogsRepository struct {
 
 // CreateLogGroupIfNotExists cria um log group se ele não existir
 func (r *CWLogsRepository) CreateLogGroupIfNotExists(ctx context.Context, groupName string, retentionDays int32) error {
-	_, err := r.Client.Logs.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{
+	_, err := r.Client.CWLogs.CreateLogGroup(ctx, &cw.CreateLogGroupInput{
 		LogGroupName: aws.String(groupName),
 	})
 
@@ -37,8 +38,8 @@ func (r *CWLogsRepository) CreateLogGroupIfNotExists(ctx context.Context, groupN
 }
 
 // GetLogGroup recupera informações sobre um log group
-func (r *CWLogsRepository) GetLogGroup(ctx context.Context, groupName string) (*cloudwatchlogs.DescribeLogGroupsOutput, error) {
-	output, err := r.Client.Logs.DescribeLogGroups(ctx, &cloudwatchlogs.DescribeLogGroupsInput{
+func (r *CWLogsRepository) GetLogGroup(ctx context.Context, groupName string) (*cw.DescribeLogGroupsOutput, error) {
+	output, err := r.Client.CWLogs.DescribeLogGroups(ctx, &cw.DescribeLogGroupsInput{
 		LogGroupNamePrefix: aws.String(groupName),
 	})
 
@@ -51,7 +52,7 @@ func (r *CWLogsRepository) GetLogGroup(ctx context.Context, groupName string) (*
 
 // DeleteLogGroup deleta um log group
 func (r *CWLogsRepository) DeleteLogGroup(ctx context.Context, groupName string) error {
-	_, err := r.Client.Logs.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{
+	_, err := r.Client.CWLogs.DeleteLogGroup(ctx, &cw.DeleteLogGroupInput{
 		LogGroupName: aws.String(groupName),
 	})
 
