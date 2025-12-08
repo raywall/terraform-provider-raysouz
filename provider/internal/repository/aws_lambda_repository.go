@@ -50,7 +50,6 @@ func (r *LambdaRepository) EnsureFunction(ctx context.Context, lc *dto.LambdaCon
 	var zipBytes []byte
 
 	if hasLocalZip {
-		// Lê o arquivo local
 		bs, rerr := os.ReadFile(lc.ZipPath)
 		if rerr != nil {
 			return nil, fmt.Errorf("reading zip file: %w", rerr)
@@ -58,7 +57,6 @@ func (r *LambdaRepository) EnsureFunction(ctx context.Context, lc *dto.LambdaCon
 		zipBytes = bs
 		functionCode = &types.FunctionCode{ZipFile: bs}
 	} else {
-		// Usa S3
 		functionCode = &types.FunctionCode{
 			S3Bucket: aws.String(lc.S3Bucket),
 			S3Key:    aws.String(lc.S3Key),
@@ -69,12 +67,24 @@ func (r *LambdaRepository) EnsureFunction(ctx context.Context, lc *dto.LambdaCon
 	got, err := r.GetFunction(ctx, lc.FunctionName)
 
 	if got != nil && err == nil {
-		// Função existe: Faz o UPDATE (Configuração + Código)
+		// Função existe: Faz o UPDATE
+
+		// IMPORTANTE: Aguarda a função estar disponível ANTES de qualquer atualização
+		if werr := r.waitForActive(ctx, lc.FunctionName); werr != nil {
+			return nil, fmt.Errorf("waiting for function to be ready before update: %w", werr)
+		}
+
+		// Atualiza a configuração primeiro
 		if err := r.updateFunctionConfiguration(ctx, lc, roleArn, rt); err != nil {
 			return nil, err
 		}
 
-		// Atualiza o código baseado na origem
+		// Aguarda a configuração ser aplicada
+		if werr := r.waitForActive(ctx, lc.FunctionName); werr != nil {
+			return nil, fmt.Errorf("waiting after configuration update: %w", werr)
+		}
+
+		// Agora atualiza o código
 		if hasLocalZip {
 			if err := r.updateFunctionCode(ctx, lc.FunctionName, zipBytes); err != nil {
 				return nil, err
@@ -85,10 +95,11 @@ func (r *LambdaRepository) EnsureFunction(ctx context.Context, lc *dto.LambdaCon
 			}
 		}
 
-		// Aguarda o status Ativo/Atualizado
+		// Aguarda o código ser atualizado
 		if werr := r.waitForActive(ctx, lc.FunctionName); werr != nil {
-			return nil, werr
+			return nil, fmt.Errorf("waiting after code update: %w", werr)
 		}
+
 		return got.FunctionArn, nil
 	}
 
@@ -108,6 +119,11 @@ func (r *LambdaRepository) EnsureFunction(ctx context.Context, lc *dto.LambdaCon
 
 	if cerr != nil {
 		if strings.Contains(cerr.Error(), "ResourceConflictException") {
+			// Aguarda um pouco e tenta recuperar
+			time.Sleep(2 * time.Second)
+			if werr := r.waitForActive(ctx, lc.FunctionName); werr != nil {
+				return nil, fmt.Errorf("function creation conflict, wait failed: %w", werr)
+			}
 			g2, _ := r.GetFunction(ctx, lc.FunctionName)
 			if g2 != nil {
 				return g2.FunctionArn, nil
@@ -117,6 +133,10 @@ func (r *LambdaRepository) EnsureFunction(ctx context.Context, lc *dto.LambdaCon
 	}
 
 	if result != nil {
+		// Aguarda a função criada estar ativa
+		if werr := r.waitForActive(ctx, lc.FunctionName); werr != nil {
+			return nil, fmt.Errorf("waiting after function creation: %w", werr)
+		}
 		return result.FunctionArn, nil
 	}
 	return nil, fmt.Errorf("lambda created but ARN not available")
@@ -135,6 +155,40 @@ func (r *LambdaRepository) updateFunctionCodeFromS3(ctx context.Context, functio
 	}
 
 	return nil
+}
+
+// waitForActive aguarda a função Lambda estar no estado Active
+func (r *LambdaRepository) waitForActive(ctx context.Context, functionName string) error {
+	maxRetries := 60 // 60 tentativas
+	retryDelay := 2 * time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		resp, err := r.Client.Lambda.GetFunction(ctx, &lambda.GetFunctionInput{
+			FunctionName: aws.String(functionName),
+		})
+
+		if err != nil {
+			return fmt.Errorf("checking function status: %w", err)
+		}
+
+		state := resp.Configuration.State
+		lastUpdateStatus := resp.Configuration.LastUpdateStatus
+
+		// Estados considerados "prontos"
+		if state == types.StateActive && lastUpdateStatus == types.LastUpdateStatusSuccessful {
+			return nil
+		}
+
+		// Estados de falha
+		if state == types.StateFailed || lastUpdateStatus == types.LastUpdateStatusFailed {
+			return fmt.Errorf("function in failed state: %s (last update: %s)", state, lastUpdateStatus)
+		}
+
+		// Aguarda antes da próxima tentativa
+		time.Sleep(retryDelay)
+	}
+
+	return fmt.Errorf("timeout waiting for function to become active after %d retries", maxRetries)
 }
 
 // AddPermission adiciona permissão de invocação (usado para APIGW).
