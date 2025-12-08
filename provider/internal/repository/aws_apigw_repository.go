@@ -8,15 +8,14 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	apigw "github.com/aws/aws-sdk-go-v2/service/apigateway"
-	"github.com/raywall/terraform-provider-raysouz/provider/internal/client"
 	"github.com/raywall/terraform-provider-raysouz/pkg/types"
+	"github.com/raywall/terraform-provider-raysouz/provider/internal/client"
 )
 
 // APIGWRepository encapsula operações CRUD da AWS API Gateway (v1).
 type APIGWRepository struct {
 	Client *client.AWSClient
 }
-
 
 // GetRootResourceID busca o ID do recurso raiz (/).
 func (r *APIGWRepository) GetRootResourceID(ctx context.Context, apiID string) (string, error) {
