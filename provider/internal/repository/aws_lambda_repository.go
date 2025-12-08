@@ -10,8 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	lambda "github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
-	"github.com/raywall/terraform-provider-raysouz/provider/internal/client"
 	dto "github.com/raywall/terraform-provider-raysouz/pkg/types"
+	"github.com/raywall/terraform-provider-raysouz/provider/internal/client"
 )
 
 // LambdaRepository encapsula operações CRUD da AWS Lambda.
@@ -33,13 +33,39 @@ func (r *LambdaRepository) GetFunction(ctx context.Context, functionName string)
 
 // EnsureFunction cria ou atualiza a função Lambda.
 func (r *LambdaRepository) EnsureFunction(ctx context.Context, lc *dto.LambdaConfig, roleArn string) (*string, error) {
-	// 1. Lógica de leitura de código e runtime
-	bs, rerr := os.ReadFile(lc.ZipPath)
-	if rerr != nil {
-		return nil, fmt.Errorf("reading zip file: %w", rerr)
-	}
-	rt := mapRuntime(lc.Runtime)
+	// 1. Validação: precisa ter ZipPath OU (S3Bucket E S3Key)
+	hasLocalZip := lc.ZipPath != ""
+	hasS3Source := lc.S3Bucket != "" && lc.S3Key != ""
 
+	if !hasLocalZip && !hasS3Source {
+		return nil, fmt.Errorf("must provide either ZipPath or both S3Bucket and S3Key")
+	}
+
+	if hasLocalZip && hasS3Source {
+		return nil, fmt.Errorf("cannot provide both ZipPath and S3 source (S3Bucket/S3Key)")
+	}
+
+	// 2. Prepara o código da função baseado na origem
+	var functionCode *types.FunctionCode
+	var zipBytes []byte
+
+	if hasLocalZip {
+		// Lê o arquivo local
+		bs, rerr := os.ReadFile(lc.ZipPath)
+		if rerr != nil {
+			return nil, fmt.Errorf("reading zip file: %w", rerr)
+		}
+		zipBytes = bs
+		functionCode = &types.FunctionCode{ZipFile: bs}
+	} else {
+		// Usa S3
+		functionCode = &types.FunctionCode{
+			S3Bucket: aws.String(lc.S3Bucket),
+			S3Key:    aws.String(lc.S3Key),
+		}
+	}
+
+	rt := mapRuntime(lc.Runtime)
 	got, err := r.GetFunction(ctx, lc.FunctionName)
 
 	if got != nil && err == nil {
@@ -47,8 +73,16 @@ func (r *LambdaRepository) EnsureFunction(ctx context.Context, lc *dto.LambdaCon
 		if err := r.updateFunctionConfiguration(ctx, lc, roleArn, rt); err != nil {
 			return nil, err
 		}
-		if err := r.updateFunctionCode(ctx, lc.FunctionName, bs); err != nil {
-			return nil, err
+
+		// Atualiza o código baseado na origem
+		if hasLocalZip {
+			if err := r.updateFunctionCode(ctx, lc.FunctionName, zipBytes); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := r.updateFunctionCodeFromS3(ctx, lc.FunctionName, lc.S3Bucket, lc.S3Key); err != nil {
+				return nil, err
+			}
 		}
 
 		// Aguarda o status Ativo/Atualizado
@@ -61,12 +95,12 @@ func (r *LambdaRepository) EnsureFunction(ctx context.Context, lc *dto.LambdaCon
 	// Função não existe: Faz o CREATE
 	result, cerr := r.Client.Lambda.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(lc.FunctionName),
-		Role:         aws.String(roleArn),
 		Handler:      aws.String(lc.Handler),
 		Runtime:      rt,
-		Code:         &types.FunctionCode{ZipFile: bs},
-		MemorySize:   aws.Int32(lc.MemorySize),
 		Timeout:      aws.Int32(lc.Timeout),
+		MemorySize:   aws.Int32(lc.MemorySize),
+		Role:         aws.String(roleArn),
+		Code:         functionCode,
 		Environment: &types.Environment{
 			Variables: lc.Environment,
 		},
@@ -86,6 +120,21 @@ func (r *LambdaRepository) EnsureFunction(ctx context.Context, lc *dto.LambdaCon
 		return result.FunctionArn, nil
 	}
 	return nil, fmt.Errorf("lambda created but ARN not available")
+}
+
+// updateFunctionCodeFromS3 atualiza o código da Lambda a partir do S3
+func (r *LambdaRepository) updateFunctionCodeFromS3(ctx context.Context, functionName, s3Bucket, s3Key string) error {
+	_, err := r.Client.Lambda.UpdateFunctionCode(ctx, &lambda.UpdateFunctionCodeInput{
+		FunctionName: aws.String(functionName),
+		S3Bucket:     aws.String(s3Bucket),
+		S3Key:        aws.String(s3Key),
+	})
+
+	if err != nil {
+		return fmt.Errorf("updating function code from S3: %w", err)
+	}
+
+	return nil
 }
 
 // AddPermission adiciona permissão de invocação (usado para APIGW).

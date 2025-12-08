@@ -9,8 +9,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 
-	"github.com/raywall/terraform-provider-raysouz/provider/internal/models"
 	dto "github.com/raywall/terraform-provider-raysouz/pkg/types"
+	"github.com/raywall/terraform-provider-raysouz/provider/internal/models"
 )
 
 // ResourceAPIGatewayLambdaRoutes define o schema do recurso.
@@ -33,21 +33,23 @@ func ResourceAPIGatewayLambdaRoutes() *schema.Resource {
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"function_name": {Type: schema.TypeString, Required: true},
-						"runtime":       {Type: schema.TypeString, Required: true},
 						"handler":       {Type: schema.TypeString, Required: true},
-						"zip_file":      {Type: schema.TypeString, Required: true},
-						"memory_size":   {Type: schema.TypeInt, Optional: true, Default: 128},
+						"runtime":       {Type: schema.TypeString, Required: true},
 						"timeout":       {Type: schema.TypeInt, Optional: true, Default: 30},
+						"memory_size":   {Type: schema.TypeInt, Optional: true, Default: 128},
+						"zip_file":      {Type: schema.TypeString, Required: true},
+						"s3_bucket":     {Type: schema.TypeString, Required: true},
+						"s3_key":        {Type: schema.TypeString, Required: true},
+						"environment_variables": {
+							Type:     schema.TypeMap,
+							Optional: true,
+							Elem:     &schema.Schema{Type: schema.TypeString},
+						},
 						"attached_policy_arns": {
 							Type:        schema.TypeList,
 							Optional:    true,
 							Description: "Lista de ARNs de políticas gerenciadas para anexar à Role de execução da Lambda.",
 							Elem:        &schema.Schema{Type: schema.TypeString},
-						},
-						"environment_variables": {
-							Type:     schema.TypeMap,
-							Optional: true,
-							Elem:     &schema.Schema{Type: schema.TypeString},
 						},
 					},
 				},
@@ -99,35 +101,35 @@ func resourceCreate(ctx context.Context, d *schema.ResourceData, m interface{}) 
 
 // resourceRead (Controller)
 func resourceRead(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-    bundle, ok := m.(*models.ConfigurationBundle)
-    if !ok || bundle.DeployService == nil {
-        return diag.FromErr(fmt.Errorf("deployment service not configured"))
-    }
+	bundle, ok := m.(*models.ConfigurationBundle)
+	if !ok || bundle.DeployService == nil {
+		return diag.FromErr(fmt.Errorf("deployment service not configured"))
+	}
 
-    internal := d.Get("internal").(string)
-    if internal == "" {
-        return nil
-    }
+	internal := d.Get("internal").(string)
+	if internal == "" {
+		return nil
+	}
 
-    var st dto.ResourceState
-    if err := json.Unmarshal([]byte(internal), &st); err != nil {
-        d.SetId("")
-        return diag.FromErr(fmt.Errorf("failed reading internal state: %w", err))
-    }
+	var st dto.ResourceState
+	if err := json.Unmarshal([]byte(internal), &st); err != nil {
+		d.SetId("")
+		return diag.FromErr(fmt.Errorf("failed reading internal state: %w", err))
+	}
 
-    // CORREÇÃO: Chama o Service Facade para verificar o estado completo
-    exists, err := bundle.DeployService.CheckResourceExistence(ctx, &st)
-    if err != nil {
-        // Se houver erro de comunicação/API, retorna diag.FromErr
-        return diag.FromErr(fmt.Errorf("failed during existence check: %w", err))
-    }
+	// CORREÇÃO: Chama o Service Facade para verificar o estado completo
+	exists, err := bundle.DeployService.CheckResourceExistence(ctx, &st)
+	if err != nil {
+		// Se houver erro de comunicação/API, retorna diag.FromErr
+		return diag.FromErr(fmt.Errorf("failed during existence check: %w", err))
+	}
 
-    if !exists {
-        // Se o Service diz que não existe (Role ou Lambda), marca como drift
-        d.SetId("")
-    }
-    
-    return nil
+	if !exists {
+		// Se o Service diz que não existe (Role ou Lambda), marca como drift
+		d.SetId("")
+	}
+
+	return nil
 }
 
 // resourceUpdate (Controller)
@@ -192,13 +194,15 @@ func extractConfig(d *schema.ResourceData) (*dto.LambdaConfig, []dto.RouteConfig
 
 	lc := &dto.LambdaConfig{
 		FunctionName: lcMap["function_name"].(string),
-		Runtime:      lcMap["runtime"].(string),
 		Handler:      lcMap["handler"].(string),
-		ZipPath:      lcMap["zip_file"].(string),
-		MemorySize:   int32(lcMap["memory_size"].(int)),
+		Runtime:      lcMap["runtime"].(string),
 		Timeout:      int32(lcMap["timeout"].(int)),
-		PolicyARNs:   policyARNs,
+		MemorySize:   int32(lcMap["memory_size"].(int)),
+		ZipPath:      lcMap["zip_file"].(string),
+		S3Bucket:     lcMap["s3_bucket"].(string),
+		S3Key:        lcMap["s3_key"].(string),
 		Environment:  env,
+		PolicyARNs:   policyARNs,
 	}
 
 	routesRaw := d.Get("routes").([]interface{})
