@@ -12,4 +12,7 @@ type ResourceState struct {
 	LogGroup           string                  `json:"log_group"`
 	Resources          map[string]ResourceInfo `json:"resources"`
 	AttachedPolicyARNs []string                `json:"attached_policy_arns"`
+	LambdaConfig       LambdaConfig            `json:"lambda_config,omitempty"`
+	CodeHash           string                  `json:"code_hash,omitempty"`
+	LastUpdateTime     int64                   `json:"last_update_time,omitempty"`
 }

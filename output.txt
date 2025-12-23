@@ -4,18 +4,40 @@
 │       └── apigateway_lambda_routes.md
 ├── go.mod
 ├── go.sum
-├── provider
-│   │── provider.go
-│   └── internal
-│       ├── client
-│       │   └── aws_client.go
-│       ├── repository
-│       │   └── aw_iam_repository.go
-│       ├── resource
-│       │   └── aws_apigateway_lambda_routes.go
-│       └── service
-│           └── aws_lambda_deployment_service.go
 ├── main.go
 ├── Makefile
+├── output.txt
+├── pkg
+│   └── types
+│       ├── apigw_config.go
+│       ├── lambda_config.go
+│       ├── resource_info.go
+│       ├── resource_state.go
+│       ├── route_config.go
+│       └── route_state.go
+├── provider
+│   ├── internal
+│   │   ├── client
+│   │   │   └── aws_client.go
+│   │   ├── models
+│   │   │   └── config_bundle.go
+│   │   ├── repository
+│   │   │   ├── aws_apigw_repository.go
+│   │   │   ├── aws_cwlogs_repository.go
+│   │   │   ├── aws_iam_repository.go
+│   │   │   ├── aws_lambda_repository.go
+│   │   │   └── hcl_state_repository.go
+│   │   ├── resource
+│   │   │   └── aws_apigateway_lambda_routes.go
+│   │   └── service
+│   │       ├── aws_apigw_service.go
+│   │       ├── aws_cwlogs_service.go
+│   │       ├── aws_iam_service.go
+│   │       ├── aws_lambda_deployment_service.go
+│   │       └── hcl_state_service.go
+│   └── provider.go
 ├── README.md
+├── terraform-provider-raysouz
 └── terraform-registry-manifest.json
+
+12 directories, 29 files

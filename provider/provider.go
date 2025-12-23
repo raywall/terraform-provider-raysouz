@@ -89,5 +89,9 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 	}
 
 	// 6. Retorna o Bundle para os Resources
-	return &models.ConfigurationBundle{DeployService: deployService, Client: awsClient}, diags
+	return &models.ConfigurationBundle{
+		DeployService: deployService,
+		StateService:  hclStateService, // Adicionado aqui
+		Client:        awsClient,
+	}, diags
 }
