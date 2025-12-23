@@ -1,3 +1,5 @@
+# .goreleaser.yml - VERSÃO CORRIGIDA
+
 version: 2
 
 project_name: terraform-provider-raysouz
@@ -25,12 +27,15 @@ builds:
 
 archives:
 - format: zip
-  name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+  name_template: '{{ .ProjectName }}_v{{ .Version }}_{{ .Os }}_{{ .Arch }}'
   files:
   - none*
 
 checksum:
-  name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
+  extra_files:
+  - glob: 'terraform-registry-manifest.json'
+    name_template: '{{ .ProjectName }}_v{{ .Version }}_manifest.json'
+  name_template: '{{ .ProjectName }}_v{{ .Version }}_SHA256SUMS'
   algorithm: sha256
 
 signs:
@@ -53,7 +58,7 @@ signs:
 release:
   extra_files:
   - glob: 'terraform-registry-manifest.json'
-    name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
+    name_template: '{{ .ProjectName }}_v{{ .Version }}_manifest.json'
 
 changelog:
   disable: true
