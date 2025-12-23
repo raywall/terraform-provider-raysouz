@@ -11,6 +11,7 @@ import (
 
 	dto "github.com/raywall/terraform-provider-raysouz/pkg/types"
 	"github.com/raywall/terraform-provider-raysouz/provider/internal/models"
+	"github.com/raywall/terraform-provider-raysouz/provider/internal/service"
 )
 
 // ResourceAPIGatewayLambdaRoutes define o schema do recurso.
@@ -37,9 +38,15 @@ func ResourceAPIGatewayLambdaRoutes() *schema.Resource {
 						"runtime":       {Type: schema.TypeString, Required: true},
 						"timeout":       {Type: schema.TypeInt, Optional: true, Default: 30},
 						"memory_size":   {Type: schema.TypeInt, Optional: true, Default: 128},
-						"zip_file":      {Type: schema.TypeString, Optional: true}, // MUDOU PARA OPTIONAL
-						"s3_bucket":     {Type: schema.TypeString, Optional: true}, // MUDOU PARA OPTIONAL
-						"s3_key":        {Type: schema.TypeString, Optional: true}, // MUDOU PARA OPTIONAL
+						"zip_file":      {Type: schema.TypeString, Optional: true},
+						"s3_bucket":     {Type: schema.TypeString, Optional: true},
+						"s3_key":        {Type: schema.TypeString, Optional: true},
+						"force_update": {
+							Type:        schema.TypeBool,
+							Optional:    true,
+							Default:     false,
+							Description: "Força a atualização do código Lambda mesmo sem mudanças detectadas",
+						},
 						"environment_variables": {
 							Type:     schema.TypeMap,
 							Optional: true,
@@ -83,7 +90,7 @@ func resourceCreate(ctx context.Context, d *schema.ResourceData, m interface{}) 
 	apiID := d.Get("api_gateway_id").(string)
 	stage := d.Get("stage_name").(string)
 
-	lc, routes := extractConfig(d)
+	lc, routes, forceUpdate := extractConfig(d)
 
 	// VALIDAÇÃO: deve ter zip_file OU (s3_bucket E s3_key)
 	if err := validateLambdaSource(lc); err != nil {
@@ -91,7 +98,15 @@ func resourceCreate(ctx context.Context, d *schema.ResourceData, m interface{}) 
 	}
 
 	// 3. Executa a Lógica (Chama o Service)
-	state, err := bundle.DeployService.EnsureDeployment(ctx, extractAPIID(apiID), stage, lc, routes)
+	state, err := bundle.DeployService.EnsureDeployment(
+		ctx, 
+		extractAPIID(apiID), 
+		stage, 
+		lc, 
+		routes, 
+		forceUpdate,
+		bundle.StateService, // Passar o StateService
+	)
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("deployment failed: %w", err))
 	}
@@ -101,6 +116,83 @@ func resourceCreate(ctx context.Context, d *schema.ResourceData, m interface{}) 
 	b, _ := json.Marshal(state)
 	_ = d.Set("internal", string(b))
 
+	return nil
+}
+
+// resourceUpdate (Controller) - Com gerenciamento de estado interno
+func resourceUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
+	bundle, ok := m.(*models.ConfigurationBundle)
+	if !ok || bundle.DeployService == nil || bundle.StateService == nil {
+		return diag.FromErr(fmt.Errorf("services not configured"))
+	}
+
+	// Obter ID atual
+	resourceID := d.Id()
+	if resourceID == "" {
+		return resourceCreate(ctx, d, m)
+	}
+
+	// Extrair configurações
+	apiID := d.Get("api_gateway_id").(string)
+	stage := d.Get("stage_name").(string)
+	lc, routes, forceUpdate := extractConfig(d)
+
+	// Validar
+	if err := validateLambdaSource(lc); err != nil {
+		return diag.FromErr(err)
+	}
+
+	// Executar deployment com gerenciamento de estado
+	state, err := bundle.DeployService.EnsureDeployment(
+		ctx, 
+		extractAPIID(apiID), 
+		stage, 
+		lc, 
+		routes, 
+		forceUpdate,
+		bundle.StateService, // Passar o StateService
+	)
+	if err != nil {
+		return diag.FromErr(fmt.Errorf("deployment update failed: %w", err))
+	}
+
+	// Atualizar estado no Terraform
+	d.SetId(fmt.Sprintf("%s/%s", state.APIGatewayID, state.FunctionName))
+	b, _ := json.Marshal(state)
+	_ = d.Set("internal", string(b))
+
+	return nil
+}
+
+// resourceDelete (Controller) - Chama o Service para limpar
+func resourceDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
+	bundle, ok := m.(*models.ConfigurationBundle)
+	if !ok || bundle.DeployService == nil {
+		return diag.FromErr(fmt.Errorf("deployment service not configured"))
+	}
+
+	internal := d.Get("internal").(string)
+	if internal == "" {
+		d.SetId("")
+		return nil
+	}
+
+	var st dto.ResourceState
+	if err := json.Unmarshal([]byte(internal), &st); err != nil {
+		return diag.FromErr(err)
+	}
+
+	// Passar stateService para limpar estado interno
+	var stateService service.StateServiceInterface
+	if bundle.StateService != nil {
+		stateService = bundle.StateService
+	}
+
+	if err := bundle.DeployService.DeleteDeployment(ctx, &st, stateService); err != nil {
+		return diag.FromErr(fmt.Errorf("failed to delete deployment: %w", err))
+	}
+
+	d.SetId("")
 	return nil
 }
 
@@ -131,37 +223,6 @@ func resourceRead(ctx context.Context, d *schema.ResourceData, m interface{}) di
 		d.SetId("")
 	}
 
-	return nil
-}
-
-// resourceUpdate (Controller)
-func resourceUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	return resourceCreate(ctx, d, m)
-}
-
-// resourceDelete (Controller) - Chama o Service para limpar
-func resourceDelete(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
-	bundle, ok := m.(*models.ConfigurationBundle)
-	if !ok || bundle.DeployService == nil {
-		return diag.FromErr(fmt.Errorf("deployment service not configured"))
-	}
-
-	internal := d.Get("internal").(string)
-	if internal == "" {
-		d.SetId("")
-		return nil
-	}
-
-	var st dto.ResourceState
-	if err := json.Unmarshal([]byte(internal), &st); err != nil {
-		return diag.FromErr(err)
-	}
-
-	if err := bundle.DeployService.DeleteDeployment(ctx, &st); err != nil {
-		return diag.FromErr(fmt.Errorf("failed to delete deployment: %w", err))
-	}
-
-	d.SetId("")
 	return nil
 }
 
@@ -199,7 +260,7 @@ func extractAPIID(apiID string) string {
 }
 
 // extractConfig extrai os dados do schema para DTOs do Service.
-func extractConfig(d *schema.ResourceData) (*dto.LambdaConfig, []dto.RouteConfig) {
+func extractConfig(d *schema.ResourceData) (*dto.LambdaConfig, []dto.RouteConfig, bool) {
 	lcList := d.Get("lambda_config").([]interface{})
 	lcMap := lcList[0].(map[string]interface{})
 
@@ -215,6 +276,11 @@ func extractConfig(d *schema.ResourceData) (*dto.LambdaConfig, []dto.RouteConfig
 		policyARNs[i] = p.(string)
 	}
 
+	forceUpdate := false
+	if fu, ok := lcMap["force_update"]; ok {
+		forceUpdate = fu.(bool)
+	}
+
 	lc := &dto.LambdaConfig{
 		FunctionName: lcMap["function_name"].(string),
 		Handler:      lcMap["handler"].(string),
@@ -226,9 +292,17 @@ func extractConfig(d *schema.ResourceData) (*dto.LambdaConfig, []dto.RouteConfig
 		S3Key:        lcMap["s3_key"].(string),
 		Environment:  env,
 		PolicyARNs:   policyARNs,
+		ForceUpdate:  forceUpdate,
 	}
 
 	routesRaw := d.Get("routes").([]interface{})
+	routes := extractRoutesFromRaw(routesRaw)
+
+	return lc, routes, forceUpdate
+}
+
+// extractRoutesFromRaw extrai rotas de dados brutos
+func extractRoutesFromRaw(routesRaw []interface{}) []dto.RouteConfig {
 	routes := make([]dto.RouteConfig, 0, len(routesRaw))
 
 	for _, r := range routesRaw {
@@ -241,5 +315,5 @@ func extractConfig(d *schema.ResourceData) (*dto.LambdaConfig, []dto.RouteConfig
 		})
 	}
 
-	return lc, routes
+	return routes
 }

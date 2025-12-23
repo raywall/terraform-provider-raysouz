@@ -2,8 +2,8 @@ package types
 
 // APIGWState armazena o estado de recursos APIGW complexos.
 type APIGWState struct {
-	APIGatewayID string
-	StageName    string
-	Routes       []RouteState
-	Resources    map[string]ResourceInfo // Usa DTO de baixo nível do Repositório
+	APIGatewayID string                  `json:"api_gateway_id"`
+	StageName    string                  `json:"stage_name"`
+	Routes       []RouteState            `json:"routes"`
+	Resources    map[string]ResourceInfo `json:"resources"`
 }

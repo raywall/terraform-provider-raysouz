@@ -1,121 +1,121 @@
 name: Release Terraform Provider
 
 on:
-    push:
-        branches: ["main"]
-    workflow_dispatch:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
 
 permissions:
-    contents: write
-    packages: write
+  contents: write
+  packages: write
 
 jobs:
-    #############################################################
-    # 1) VALIDAÇÃO
-    #############################################################
-    validate:
-        name: Validate
-        runs-on: ubuntu-latest
+  #############################################################
+  # 1) VALIDAÇÃO
+  #############################################################
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
 
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-            - name: Setup Go
-              uses: actions/setup-go@v5
-              with:
-                  go-version: 1.25.4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.4
 
-            - name: Go fmt
-              run: go fmt ./...
+      - name: Go fmt
+        run: go fmt ./...
 
-            - name: Go vet
-              run: go vet ./...
+      - name: Go vet
+        run: go vet ./...
 
-    #############################################################
-    # 2) CRIAR RELEASE + BINÁRIOS
-    #############################################################
-    release:
-        name: Release
-        needs: validate
-        runs-on: ubuntu-latest
+  #############################################################
+  # 2) CRIAR RELEASE + BINÁRIOS
+  #############################################################
+  release:
+    name: Release
+    needs: validate
+    runs-on: ubuntu-latest
 
-        outputs:
-            new_tag: ${{ steps.version.outputs.new_tag }}
+    outputs:
+      new_tag: ${{ steps.version.outputs.new_tag }}
 
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v4
-              with:
-                  fetch-depth: 0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-            - name: Setup Go
-              uses: actions/setup-go@v5
-              with:
-                  go-version: 1.25.4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.4
 
-            - name: Determine next version
-              id: version
-              run: |
-                  git fetch --tags
-                  latest=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || echo "v0.0.0")
-                  major=$(echo $latest | cut -d. -f1 | tr -d v)
-                  minor=$(echo $latest | cut -d. -f2)
-                  patch=$(echo $latest | cut -d. -f3)
-                  while :; do
-                      patch=$((patch + 1))
-                      new="v${major}.${minor}.${patch}"
-                      if ! git ls-remote --tags origin | grep -q "refs/tags/$new"; then
-                        echo "new_tag=$new" >> $GITHUB_OUTPUT
-                        echo "Next tag: $new"
-                        break
-                      fi
-                  done
+      - name: Determine next version
+        id: version
+        run: |
+          git fetch --tags
+          latest=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || echo "v0.0.0")
+          major=$(echo $latest | cut -d. -f1 | tr -d v)
+          minor=$(echo $latest | cut -d. -f2)
+          patch=$(echo $latest | cut -d. -f3)
+          while :; do
+              patch=$((patch + 1))
+              new="v${major}.${minor}.${patch}"
+              if ! git ls-remote --tags origin | grep -q "refs/tags/$new"; then
+                echo "new_tag=$new" >> $GITHUB_OUTPUT
+                echo "Next tag: $new"
+                break
+              fi
+          done
 
-            - name: Create and push tag
-              run: |
-                  git config user.name "github-actions"
-                  git config user.email "actions@github.com"
-                  git tag ${{ steps.version.outputs.new_tag }}
-                  git push origin ${{ steps.version.outputs.new_tag }}
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git tag ${{ steps.version.outputs.new_tag }}
+          git push origin ${{ steps.version.outputs.new_tag }}
 
-            - name: Checkout tag
-              run: |
-                  git fetch origin ${{ steps.version.outputs.new_tag }} --tags
-                  git checkout ${{ steps.version.outputs.new_tag }}
+      - name: Checkout tag
+        run: |
+          git fetch origin ${{ steps.version.outputs.new_tag }} --tags
+          git checkout ${{ steps.version.outputs.new_tag }}
 
-            - name: Import GPG key
-              id: import_gpg
-              uses: crazy-max/ghaction-import-gpg@v6
-              with:
-                  gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-                  passphrase: ${{ secrets.PASSPHRASE }}
+      - name: Import GPG key
+        id: import_gpg
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.PASSPHRASE }}
 
-            - name: Setup GPG fingerprint
-              id: gpg_fingerprint
-              run: |
-                  echo "fingerprint=$(gpg --list-secret-keys --keyid-format LONG | grep -oP '^\s*\K[0-9A-F]{40}')" >> $GITHUB_OUTPUT
+      - name: Setup GPG fingerprint
+        id: gpg_fingerprint
+        run: |
+          echo "fingerprint=$(gpg --list-secret-keys --keyid-format LONG | grep -oP '^\s*\K[0-9A-F]{40}')" >> $GITHUB_OUTPUT
 
-            - name: Run GoReleaser
-              uses: goreleaser/goreleaser-action@v6
-              with:
-                  version: latest
-                  args: release --clean
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  GPG_FINGERPRINT: ${{ steps.gpg_fingerprint.outputs.fingerprint }}
-                  GPG_PASSPHRASE: ${{ secrets.PASSPHRASE }}
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GPG_FINGERPRINT: ${{ steps.gpg_fingerprint.outputs.fingerprint }}
+          GPG_PASSPHRASE: ${{ secrets.PASSPHRASE }}
 
-            - name: Upload terraform-registry-manifest.json
-              run: |
-                  cat > terraform-registry-manifest.json << EOF
-                  {
-                        "version": 1,
-                        "metadata": {
-                            "protocol_versions": ["6.0"]
-                        }
-                  }
-                  EOF
-                  gh release upload ${{ steps.version.outputs.new_tag }} terraform-registry-manifest.json --clobber
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # - name: Upload terraform-registry-manifest.json
+      #   run: |
+      #       cat > terraform-registry-manifest.json << EOF
+      #       {
+      #             "version": 1,
+      #             "metadata": {
+      #                 "protocol_versions": ["6.0"]
+      #             }
+      #       }
+      #       EOF
+      #       gh release upload ${{ steps.version.outputs.new_tag }} terraform-registry-manifest.json --clobber
+      #   env:
+      #       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
